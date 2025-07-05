@@ -23,6 +23,7 @@ if (flutterVersionName == null) {
 }
 
 android {
+    namespace 'com.example.capture_upload_video'
     compileSdkVersion 34
     ndkVersion flutter.ndkVersion
 
