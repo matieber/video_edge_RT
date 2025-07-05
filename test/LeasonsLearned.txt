@@ -1,0 +1,8 @@
+Problem: when trying to deploy an android or flutter application the deployment fails saying: "adb: insufficient permissions for device: missing udev rules? user is in the plugdev group"
+Solution:
+
+Follow these steps: https://stackoverflow.com/questions/9210152/set-up-device-for-development-no-permissions
+and then these: https://stackoverflow.com/questions/53887322/adb-devices-no-permissions-user-in-plugdev-group-are-your-udev-rules-wrong
+
+
+https://stackoverflow.com/questions/13962023/android-get-the-maximum-value-of-light-sensor
