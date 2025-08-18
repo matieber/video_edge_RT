@@ -18,7 +18,7 @@ class CameraPage extends StatefulWidget {
   State<CameraPage> createState() => _CameraPageState();
 }
 
-class _CameraPageState extends State<CameraPage> {
+class _CameraPageState extends State<CameraPage> { 
   bool _isLoading = true;
   bool _isRecording = false;
   String _luxString = 'Unknown';
@@ -86,7 +86,7 @@ class _CameraPageState extends State<CameraPage> {
     _light = Light();
     try {
       _subscription = _light?.lightSensorStream.listen(onData);
-    } on LightException catch (exception) {
+    } catch (exception) {
       print("light sensor initialization failed");
     }
   }
@@ -143,7 +143,7 @@ class _CameraPageState extends State<CameraPage> {
       child: Stack(
         alignment: Alignment.bottomCenter,
         children: [
-          //CameraPreview(_cameraController),
+          //CameraPreview(_cameraController), //Esto estaba comentado en el original
           Container(
               decoration: BoxDecoration(
                 border:
@@ -217,8 +217,8 @@ class _CameraPageState extends State<CameraPage> {
           },
     )]));
   }
-
-  @override
+  
+  //@override
   Widget build(BuildContext context) {
     if (_isLoading) {
       return Container(

@@ -42,7 +42,7 @@ class _VideoPageState extends State<VideoPage> {
       appBar: AppBar(
         title: const Text('Preview'),
         elevation: 0,
-        backgroundColor: Colors.black26,
+        backgroundColor: Colors.black26, 
         actions: [
           IconButton(
             icon: const Icon(Icons.check),
@@ -50,7 +50,7 @@ class _VideoPageState extends State<VideoPage> {
               fc.setRotation();
               int ts = DateTime.now().millisecondsSinceEpoch;
               await fc.preProcessVideo(widget.filePath);
-              print("Video preprocessed time: ${DateTime.now().millisecondsSinceEpoch - ts}");
+              print("VIDEO PREPROCESS TIME ------->  ${DateTime.now().millisecondsSinceEpoch - ts}");
               //uploadFileToServer();
               Navigator.pop(context);
             },

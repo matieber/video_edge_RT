@@ -34,12 +34,12 @@ dependencies:
   camera: ^0.10.5+3
   video_player: ^2.2.6
   http: ^1.2.1
-  light: ^3.0.1
+  light: ^4.1.0
   google_ml_kit: ^0.19.0
   image_picker: ^1.1.2
   path_provider: ^2.1.5
   google_mlkit_face_mesh_detection: ^0.3.0
-  ffmpeg_kit_flutter_min_gpl:
+  ffmpeg_kit_flutter_new: ^2.0.0
   permission_handler: ^11.3.1
   image: ^4.3.0
   uuid: ^3.0.7

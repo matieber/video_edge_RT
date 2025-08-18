@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:ffmpeg_kit_flutter_min_gpl/ffprobe_kit.dart';
+//import 'package:ffmpeg_kit_flutter_min_gpl/ffprobe_kit.dart';
+import 'package:ffmpeg_kit_flutter_new/ffprobe_kit.dart';
 //import 'package:image/image.dart' as img;
 
 import 'package:flutter/services.dart'; // Para usar BackgroundIsolateBinaryMessenger
@@ -11,9 +12,11 @@ import 'package:flutter/services.dart';
 import 'package:google_ml_kit/google_ml_kit.dart';
 import 'package:permission_handler/permission_handler.dart';
 //import 'package:dartcv4/dartcv.dart' as cv;
-import 'package:ffmpeg_kit_flutter_min_gpl/ffmpeg_kit.dart';
-import 'package:ffmpeg_kit_flutter_min_gpl/return_code.dart';
-
+//import 'package:ffmpeg_kit_flutter_min_gpl/ffmpeg_kit.dart';
+//import 'package:ffmpeg_kit_flutter_min_gpl/return_code.dart';
+import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
+import 'package:ffmpeg_kit_flutter_new/return_code.dart';
+import 'dart:developer' as developer;
 import 'dart:isolate';
 
 class FrameChecker{
@@ -128,7 +131,6 @@ class FrameChecker{
     final upper = args[3];
     BackgroundIsolateBinaryMessenger.ensureInitialized(args[4]);
     try {
-      /*
       final FaceMeshDetector isolateDetector = FaceMeshDetector(option: FaceMeshDetectorOptions.faceMesh);
       final sublist = list.sublist(lower, upper + 1);
       final List<bool> results = List<bool>.empty(growable: true);
@@ -139,7 +141,8 @@ class FrameChecker{
       }
       isolateDetector.close();
       sendPort.send(results); // Enviar resultado al hilo principal
-      */
+      /*
+      developer.Timeline.startSync('Procesamiento frames [$lower - $upper]'); 
       final stopwatch = Stopwatch()..start();
       while (stopwatch.elapsed.inSeconds < 10) {
         // Perform a heavy computation
@@ -149,19 +152,21 @@ class FrameChecker{
       }
       stopwatch.stop();
       sendPort.send(List<bool>.empty(growable: false));
+      developer.Timeline.finishSync();*/
     } catch (e) {
       sendPort.send(List<bool>.empty(growable: false)); // Enviar -1 en caso de error
-      print('processing frame ${currFrame} in isolate: 0 ${e.toString()}');
+      print('PROCCESING FRAME ${currFrame} IN ISOLATE: 0  ${e.toString()}');
     }
   }
 
   Future<void> preProcessVideo(String videoFilePath) async {
     currFrame = 0;
     var framesPaths = await extractFrames(videoFilePath);
-    print("frames count: ${framesPaths.length}");
+    print("FRAMES COUNT -------------------------------------!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!   AAAAAAAAA: ${framesPaths.length}");
     final startTime = DateTime.now(); // Captura el tiempo inicial
     final List<Future<List<bool>>> futures = [];
-    final rootIsolateToken = RootIsolateToken.instance!;
+    //Obtiene el token necesario para inicializar el messenger en los isolates secundarios (requisito de Flutter para comunicación entre isolates).
+    final rootIsolateToken = RootIsolateToken.instance!; 
 
     int parts = Platform.numberOfProcessors * 4;
     int partSize = (framesPaths.length / parts).ceil();
@@ -172,33 +177,21 @@ class FrameChecker{
 
       final completer = Completer<List<bool>>();
       final receivePort = ReceivePort();
-      await Isolate.spawn(isolateFunction, [receivePort.sendPort, framesPaths, lower, upper, rootIsolateToken]);
+      await Isolate.spawn(
+        isolateFunction,
+        [receivePort.sendPort, framesPaths, lower, upper, rootIsolateToken],
+        debugName: 'Procesamiento-$i'
+      );
       receivePort.listen((message) {
         completer.complete(message as List<bool>);
         receivePort.close(); // Cierra el puerto cuando recibes el resultado
       });
       futures.add(completer.future);
     }
-/*
-    for (final frame in framesPaths) {
-      final completer = Completer<List<FaceMesh>>();
-      final receivePort = ReceivePort();
-      InputImage inputImage = await _createImageInputFromFile(frame);
-      await Isolate.spawn(isolateFunction, [receivePort.sendPort, inputImage, currFrame, rootIsolateToken]);
-      receivePort.listen((message) {
-        completer.complefte(message as List<FaceMesh>);
-        receivePort.close(); // Cierra el puerto cuando recibes el resultado
-      });
-
-      futures.add(completer.future);
-      currFrame++;
-    }*/
-
     await Future.wait(futures); // Espera a todos los isolates
     final endTime = DateTime.now(); // Captura el tiempo final
     final duration = endTime.difference(startTime); // Diferencia en tiempo
-    print("Duración: ${duration.inMilliseconds} ms");
-
+    print("DURACION ------> ${duration.inMilliseconds} ms");
   }
 
   Future<void> preProcessVideoOld(String videoFilePath) async {
@@ -277,11 +270,30 @@ class FrameChecker{
     return ret;
   }
 
-  Future<int> _getFramesNumber(String videoFilePath) async {
+  /*Future<int> _getFramesNumber(String videoFilePath) async {  ----------------------- Quedo obsoleto tras la actualizacion de ffmpeg_kit_flutter_new
     List<String> ffProbeVideoInfo = await _getVideoInfo(videoFilePath);
     String framesInfo = ffProbeVideoInfo[56];//56 is the position where nb_frames
     // information is supposed to be within the output of the ffprobe command.
+    print("framesInfo: $framesInfo");
     return int.parse(framesInfo.split("=")[1]);
+  }*/
+
+  Future<int> _getFramesNumber(String videoFilePath) async {
+    List<String> ffProbeVideoInfo = await _getVideoInfo(videoFilePath);
+    // Busca la línea que contiene nb_frames
+    String? framesInfo = ffProbeVideoInfo.firstWhere(
+      (line) => line.contains("nb_frames"),
+      orElse: () => ""
+    );
+    print("framesInfo: $framesInfo");
+    if (framesInfo.isEmpty || !framesInfo.contains("=")) {
+      throw Exception("No se encontró nb_frames en la info del video");
+    }
+    String value = framesInfo.split("=")[1];
+    if (value == "N/A") {
+      throw Exception("nb_frames no disponible para este video");
+    }
+    return int.parse(value);
   }
 
   Future<List<String>> _getVideoInfo(String videoFilePath) {
