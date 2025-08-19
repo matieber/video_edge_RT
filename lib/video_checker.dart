@@ -160,10 +160,14 @@ class FrameChecker{
   }
 
   Future<void> preProcessVideo(String videoFilePath) async {
+    print("PREPROCESSING VIDEO: $videoFilePath");
+    final timerPreprocess = DateTime.now();
+    developer.Timeline.startSync('PREPROCESSING VIDEO');
+
     currFrame = 0;
     var framesPaths = await extractFrames(videoFilePath);
-    print("FRAMES COUNT -------------------------------------!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!   AAAAAAAAA: ${framesPaths.length}");
-    final startTime = DateTime.now(); // Captura el tiempo inicial
+    print("FRAMES COUNT -------------------------------------!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!: ${framesPaths.length}");
+    //final startTime = DateTime.now(); // Captura el tiempo inicial
     final List<Future<List<bool>>> futures = [];
     //Obtiene el token necesario para inicializar el messenger en los isolates secundarios (requisito de Flutter para comunicación entre isolates).
     final rootIsolateToken = RootIsolateToken.instance!; 
@@ -190,8 +194,9 @@ class FrameChecker{
     }
     await Future.wait(futures); // Espera a todos los isolates
     final endTime = DateTime.now(); // Captura el tiempo final
-    final duration = endTime.difference(startTime); // Diferencia en tiempo
-    print("DURACION ------> ${duration.inMilliseconds} ms");
+    final duration = endTime.difference(timerPreprocess); // Diferencia en tiempo
+    print("-----> TIME PREPROCESSING VIDEO ------> ${duration.inMilliseconds} ms");
+    developer.Timeline.finishSync();
   }
 
   Future<void> preProcessVideoOld(String videoFilePath) async {

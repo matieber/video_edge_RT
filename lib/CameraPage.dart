@@ -8,7 +8,7 @@ import 'dart:async';
 import 'package:light/light.dart';
 import 'package:confirm_dialog/confirm_dialog.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
+import 'dart:developer' as developer;
 import 'VideoPage.dart';
 
 class CameraPage extends StatefulWidget {
@@ -93,6 +93,8 @@ class _CameraPageState extends State<CameraPage> {
 
   _recordVideo() async {
     if (_isRecording) {
+      developer.Timeline.startSync('GRABACION VIDEO');
+
       final file = await _cameraController.stopVideoRecording();
       print("video file stored at: ${file.path}");
       setState(() => _isRecording = false);
@@ -104,6 +106,8 @@ class _CameraPageState extends State<CameraPage> {
             adj_h: clipper.get_height_adjustment()),
       );
       Navigator.push(context, route);
+
+      developer.Timeline.finishSync();
     } else {
       currFrame = 0;
       await _cameraController.prepareForVideoRecording();

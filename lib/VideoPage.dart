@@ -50,7 +50,7 @@ class _VideoPageState extends State<VideoPage> {
               fc.setRotation();
               int ts = DateTime.now().millisecondsSinceEpoch;
               await fc.preProcessVideo(widget.filePath);
-              print("VIDEO PREPROCESS TIME ------->  ${DateTime.now().millisecondsSinceEpoch - ts}");
+              //print("VIDEO PREPROCESS TIME ------->  ${DateTime.now().millisecondsSinceEpoch - ts}");
               //uploadFileToServer();
               Navigator.pop(context);
             },

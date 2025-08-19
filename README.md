@@ -58,4 +58,6 @@ samples, guidance on mobile development, and a full API reference.
 
 ## Problemas
 1. La ejecucion mostro que en la seccion de getLightPage() la funcionalidad no anda - prioridad baja pero a resolver. 
+2. getFramesNumber en video_checker.dart quedo obsoleto
 ## Soluciones
+2. modificacion de algunas cosas del anterior y funciono, getFramesNumber es utilizado por extractFrames usado en preproccesVideo 
