@@ -21,6 +21,7 @@ class VideoPage extends StatefulWidget {
 class _VideoPageState extends State<VideoPage> {
   late VideoPlayerController _videoPlayerController;
   FrameChecker fc = FrameChecker();
+  // VideoPreProcessNative javaPreProcess = VideoPreProcessNative();
 
   @override
   void dispose() {
@@ -47,9 +48,9 @@ class _VideoPageState extends State<VideoPage> {
           IconButton(
             icon: const Icon(Icons.check),
             onPressed: () async {
-              fc.setRotation();
+              fc.setRotation();                                                 //Reemplazar por VideoPreProcessNative.setRotation()
               int ts = DateTime.now().millisecondsSinceEpoch;
-              await fc.preProcessVideo(widget.filePath);
+              await fc.preProcessVideo(widget.filePath);                        //Reemplazar por VideoPreProcessNative.preProcessVideo()
               //print("VIDEO PREPROCESS TIME ------->  ${DateTime.now().millisecondsSinceEpoch - ts}");
               //uploadFileToServer();
               Navigator.pop(context);
