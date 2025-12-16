@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:capture_upload_video/VideoPreProcessor.dart';
 import 'package:capture_upload_video/utils.dart';
 import 'package:capture_upload_video/video_checker.dart';
 import 'package:flutter/material.dart';
@@ -21,7 +22,7 @@ class VideoPage extends StatefulWidget {
 class _VideoPageState extends State<VideoPage> {
   late VideoPlayerController _videoPlayerController;
   FrameChecker fc = FrameChecker();
-  // VideoPreProcessNative javaPreProcess = VideoPreProcessNative();
+  VideoPreProcessor javaPreProcess = VideoPreProcessor();
 
   @override
   void dispose() {
@@ -48,10 +49,9 @@ class _VideoPageState extends State<VideoPage> {
           IconButton(
             icon: const Icon(Icons.check),
             onPressed: () async {
-              fc.setRotation();                                                 //Reemplazar por VideoPreProcessNative.setRotation()
               int ts = DateTime.now().millisecondsSinceEpoch;
               await fc.preProcessVideo(widget.filePath);                        //Reemplazar por VideoPreProcessNative.preProcessVideo()
-              //print("VIDEO PREPROCESS TIME ------->  ${DateTime.now().millisecondsSinceEpoch - ts}");
+              javaPreProcess.preProcessVideo(widget.filePath);
               //uploadFileToServer();
               Navigator.pop(context);
             },

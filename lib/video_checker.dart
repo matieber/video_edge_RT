@@ -161,11 +161,14 @@ class FrameChecker{
 
   Future<void> preProcessVideo(String videoFilePath) async {
     print("PREPROCESSING VIDEO: $videoFilePath");
-    final timerPreprocess = DateTime.now();
+    int timerPreprocess = DateTime.now().millisecondsSinceEpoch;
     developer.Timeline.startSync('PREPROCESSING VIDEO');
 
     currFrame = 0;
+    int timerExtract = DateTime.now().millisecondsSinceEpoch;
     var framesPaths = await extractFrames(videoFilePath);
+    int timeExtractEnd = DateTime.now().millisecondsSinceEpoch;
+
     print("FRAMES COUNT -------------------------------------!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!: ${framesPaths.length}");
     //final startTime = DateTime.now(); // Captura el tiempo inicial
     final List<Future<List<bool>>> futures = [];
@@ -193,9 +196,11 @@ class FrameChecker{
       futures.add(completer.future);
     }
     await Future.wait(futures); // Espera a todos los isolates
-    final endTime = DateTime.now(); // Captura el tiempo final
-    final duration = endTime.difference(timerPreprocess); // Diferencia en tiempo
-    print("-----> TIME PREPROCESSING VIDEO ------> ${duration.inMilliseconds} ms");
+    int timerPreprocessEnd = DateTime.now().millisecondsSinceEpoch;
+
+    print("-----> Extract time DART                     ------> ${timeExtractEnd - timerExtract} ms");
+    print("-----> ML time DART                          ------> ${timerPreprocessEnd - timeExtractEnd} ms");
+    print("-----> TIEMPO TOTAL PREPROCESSING VIDEO DART ------> ${timerPreprocessEnd - timerPreprocess} ms");
     developer.Timeline.finishSync();
   }
 
