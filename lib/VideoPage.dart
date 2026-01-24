@@ -6,8 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import 'package:http/http.dart' as http;
 
-// https://docs.flutter.dev/tools/devtools/cpu-profiler?gad_source=1&gclid=CjwKCAiA9bq6BhAKEiwAH6bqoAeGFQi-ig5iiTtJJm8WolS1crzwpuxd8NfhF3Mtb8no18wQOLmhRhoCs3UQAvD_BwE&gclsrc=aw.ds
-
 class VideoPage extends StatefulWidget {
   final String filePath;
   final double adj_w;
@@ -31,11 +29,52 @@ class _VideoPageState extends State<VideoPage> {
   }
 
   Future _initVideoPlayer() async {
-    //print("created file${widget.filePath}");
     _videoPlayerController = VideoPlayerController.file(File(widget.filePath));
     await _videoPlayerController.initialize();
     await _videoPlayerController.setLooping(true);
     await _videoPlayerController.play();
+  }
+
+  // funcion para guardar el video en la carpeta de pruebas
+  Future<void> _saveToDataset() async {
+    try {
+      // chequeo de seguridad
+      if (!_videoPlayerController.value.isInitialized) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Espera a que cargue el video..."))
+        );
+        return;
+      }
+
+      // 1. Detecto la duracion
+      int seconds = _videoPlayerController.value.duration.inSeconds;
+
+      // 2. Defino la subcarpeta (corte en 15 segundos)
+      String subfolder = (seconds > 15) ? "largos" : "cortos";
+
+      // La ruta ahora incluye la subcarpeta
+      final String datasetPath = "/storage/emulated/0/Download/dataset/$subfolder/";
+      final dir = Directory(datasetPath);
+
+      if (!await dir.exists()) {
+        await dir.create(recursive: true);
+      }
+
+      int ts = DateTime.now().millisecondsSinceEpoch;
+      // Agrego la duracion al nombre del archivo tambien para facilitar
+      String newPath = "${dir.path}vid_${seconds}s_$ts.mp4";
+
+      File original = File(widget.filePath);
+      await original.copy(newPath);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Guardado en carpeta /$subfolder"))
+      );
+      print("Guardado en: $newPath");
+
+    } catch (e) {
+      print("Error al guardar: $e");
+    }
   }
 
   @override
@@ -44,15 +83,21 @@ class _VideoPageState extends State<VideoPage> {
       appBar: AppBar(
         title: const Text('Preview'),
         elevation: 0,
-        backgroundColor: Colors.black26, 
+        backgroundColor: Colors.black26,
         actions: [
+          // boton para guardar en dataset
+          IconButton(
+            icon: const Icon(Icons.save_alt),
+            onPressed: () {
+              _saveToDataset();
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.check),
             onPressed: () async {
               int ts = DateTime.now().millisecondsSinceEpoch;
-              await fc.preProcessVideo(widget.filePath);                        //Reemplazar por VideoPreProcessNative.preProcessVideo()
+              await fc.preProcessVideo(widget.filePath);
               javaPreProcess.preProcessVideo(widget.filePath);
-              //uploadFileToServer();
               Navigator.pop(context);
             },
           )
@@ -84,7 +129,7 @@ class _VideoPageState extends State<VideoPage> {
     request.fields['json'] = '{"filename":"vid_${user}_$ts.mp4", "width_adjustment": "$w", "height_adjustment": "$h"}';
     request.files.add(
         await http.MultipartFile.fromPath('file', widget.filePath));
-  //time when start sending video to server
+
     ts = DateTime.now().millisecondsSinceEpoch;
     request.send().then((response) {
       http.Response.fromStream(response).then((onValue) {

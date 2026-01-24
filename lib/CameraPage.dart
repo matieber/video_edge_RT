@@ -10,6 +10,7 @@ import 'package:confirm_dialog/confirm_dialog.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:developer' as developer;
 import 'VideoPage.dart';
+import 'package:capture_upload_video/test_runner.dart'; // importo el runner
 
 class CameraPage extends StatefulWidget {
   const CameraPage({super.key});
@@ -18,7 +19,7 @@ class CameraPage extends StatefulWidget {
   State<CameraPage> createState() => _CameraPageState();
 }
 
-class _CameraPageState extends State<CameraPage> { 
+class _CameraPageState extends State<CameraPage> {
   bool _isLoading = true;
   bool _isRecording = false;
   String _luxString = 'Unknown';
@@ -46,10 +47,10 @@ class _CameraPageState extends State<CameraPage> {
 
   void _startTimer() {
     if (_timer != null) {
-      _timer!.cancel(); // Cancel any previous timers
+      _timer!.cancel();
     }
     setState(() {
-      _countDownSeconds = RECORDING_MAX_SECS; // Reset the timer value
+      _countDownSeconds = RECORDING_MAX_SECS;
     });
 
     _timer = Timer.periodic(Duration(seconds: 1), (timer) {
@@ -60,7 +61,7 @@ class _CameraPageState extends State<CameraPage> {
       } else {
         timer.cancel();
         if (_isRecording)
-          _recordVideo(); //stop video automatically when the timer reaches 0
+          _recordVideo();
       }
     });
   }
@@ -147,11 +148,10 @@ class _CameraPageState extends State<CameraPage> {
       child: Stack(
         alignment: Alignment.bottomCenter,
         children: [
-          //CameraPreview(_cameraController), //Esto estaba comentado en el original
           Container(
               decoration: BoxDecoration(
                 border:
-                Border.all(color: Colors.blue, width: 4), // Add a border
+                Border.all(color: Colors.blue, width: 4),
               ),
               child: ClipOval(
                 clipper: clipper,
@@ -206,23 +206,70 @@ class _CameraPageState extends State<CameraPage> {
     ]));
   }
 
+  // Aca modifique para agregar el boton de test
   Widget _getConfigurationPage() {
-    return Center(child:Column(children: [
-      FutureBuilder<String>(
-          future: setOrGetUsername(context),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return CircularProgressIndicator();
-            } else if (snapshot.hasError) {
-              return Text('Error: ${snapshot.error}');
-            } else {
-              return Text('Username: ${snapshot.data}');
-            }
-          },
-    )]));
+    return Center(child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          FutureBuilder<String>(
+            future: setOrGetUsername(context),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return CircularProgressIndicator();
+              } else if (snapshot.hasError) {
+                return Text('Error: ${snapshot.error}');
+              } else {
+                return Text('Usuario: ${snapshot.data}');
+              }
+            },
+          ),
+          SizedBox(height: 50),
+          Text("Seleccionar Benchmark:", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          SizedBox(height: 20),
+
+          // FILA DE BOTONES
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              // boton para videos cortos
+              ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 15)
+                  ),
+                  onPressed: () async {
+                    TestRunner runner = TestRunner();
+                    // le paso la carpeta cortos
+                    await runner.correrTestAleatorio(context, nombreCarpeta: "cortos");
+                  },
+                  child: Text("CORTOS (12s)")
+              ),
+
+              // boton para videos largos
+              ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange,
+                      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 15)
+                  ),
+                  onPressed: () async {
+                    TestRunner runner = TestRunner();
+                    // le paso la carpeta largos
+                    await runner.correrTestAleatorio(context, nombreCarpeta: "largos");
+                  },
+                  child: Text("LARGOS (30s)")
+              ),
+            ],
+          ),
+
+          Padding(
+              padding: EdgeInsets.only(top: 30),
+              child: Text("Videos en: Download/dataset/...", style: TextStyle(fontSize: 12, color: Colors.grey))
+          )
+        ]
+    ));
   }
-  
-  //@override
+
+  @override
   Widget build(BuildContext context) {
     if (_isLoading) {
       return Container(
@@ -259,7 +306,6 @@ class _CameraPageState extends State<CameraPage> {
     }
   }
 
-  //@override
   Widget build2(BuildContext context) {
     Future<String> future = _getMaxLightLevel();
     if (_isLoading) {
@@ -274,11 +320,10 @@ class _CameraPageState extends State<CameraPage> {
         child: Stack(
           alignment: Alignment.bottomCenter,
           children: [
-            //CameraPreview(_cameraController),
             Container(
                 decoration: BoxDecoration(
                   border:
-                      Border.all(color: Colors.blue, width: 4), // Add a border
+                  Border.all(color: Colors.blue, width: 4),
                 ),
                 child: ClipOval(
                   clipper: clipper,
@@ -309,9 +354,9 @@ class _CameraPageState extends State<CameraPage> {
                       .apply(fontSizeFactor: 0.3)),
               _isRecording
                   ? Text('\n\n\n' + _countDownSeconds.toString() + ' s.',
-                      style: DefaultTextStyle.of(context)
-                          .style
-                          .apply(fontSizeFactor: 0.3))
+                  style: DefaultTextStyle.of(context)
+                      .style
+                      .apply(fontSizeFactor: 0.3))
                   : SizedBox.shrink(),
               FutureBuilder<String>(
                   future: future,
@@ -359,11 +404,10 @@ class _CameraPageState extends State<CameraPage> {
     _isRecording = false;
     final cameras = await availableCameras();
     final frontCamera = cameras.firstWhere(
-        (camera) => camera.lensDirection == CameraLensDirection.front);
+            (camera) => camera.lensDirection == CameraLensDirection.front);
 
     _cameraController = CameraController(
       frontCamera,
-      // Set to ResolutionPreset.high. Do NOT set it to ResolutionPreset.max because for some phones does NOT work.
       ResolutionPreset.high,
       enableAudio: false,
       imageFormatGroup: Platform.isAndroid

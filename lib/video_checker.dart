@@ -18,6 +18,7 @@ import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_new/return_code.dart';
 import 'dart:developer' as developer;
 import 'dart:isolate';
+import 'resultadoBenchmark.dart';
 
 class FrameChecker{
 
@@ -142,7 +143,7 @@ class FrameChecker{
       isolateDetector.close();
       sendPort.send(results); // Enviar resultado al hilo principal
       /*
-      developer.Timeline.startSync('Procesamiento frames [$lower - $upper]'); 
+      developer.Timeline.startSync('Procesamiento frames [$lower - $upper]');
       final stopwatch = Stopwatch()..start();
       while (stopwatch.elapsed.inSeconds < 10) {
         // Perform a heavy computation
@@ -159,49 +160,60 @@ class FrameChecker{
     }
   }
 
-  Future<void> preProcessVideo(String videoFilePath) async {
-    print("PREPROCESSING VIDEO: $videoFilePath");
-    int timerPreprocess = DateTime.now().millisecondsSinceEpoch;
+  Future<ResultadoBenchmark> preProcessVideo(String rutaVideo) async {
+    print("PROCESANDO VIDEO DART: $rutaVideo");
+    developer.Timeline.startSync('FLUTTER_PREPROCESAMIENTO');
+
+    int tiempoInicioTotal = DateTime.now().millisecondsSinceEpoch;
     developer.Timeline.startSync('PREPROCESSING VIDEO');
 
     currFrame = 0;
-    int timerExtract = DateTime.now().millisecondsSinceEpoch;
-    var framesPaths = await extractFrames(videoFilePath);
-    int timeExtractEnd = DateTime.now().millisecondsSinceEpoch;
+    int tiempoInicioExtraccion = DateTime.now().millisecondsSinceEpoch;
+    var framesPaths = await extractFramesDisco(rutaVideo);
+    int tiempoFinExtraccion = DateTime.now().millisecondsSinceEpoch;
 
-    print("FRAMES COUNT -------------------------------------!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!: ${framesPaths.length}");
-    //final startTime = DateTime.now(); // Captura el tiempo inicial
+    print("CANTIDAD DE FRAMES: ${framesPaths.length}");
+
     final List<Future<List<bool>>> futures = [];
-    //Obtiene el token necesario para inicializar el messenger en los isolates secundarios (requisito de Flutter para comunicación entre isolates).
-    final rootIsolateToken = RootIsolateToken.instance!; 
+    final rootIsolateToken = RootIsolateToken.instance!;
 
-    int parts = Platform.numberOfProcessors * 4;
-    int partSize = (framesPaths.length / parts).ceil();
+    int partes = Platform.numberOfProcessors;
+    int tamanoParte = (framesPaths.length / partes).ceil();
 
-    for (int i = 0; i < parts; i++) {
-      int lower = i * partSize;
-      int upper = ((i + 1) * partSize).clamp(0, framesPaths.length) - 1;
+    for (int i = 0; i < partes; i++) {
+      int lower = i * tamanoParte;
+      int upper = ((i + 1) * tamanoParte).clamp(0, framesPaths.length) - 1;
 
       final completer = Completer<List<bool>>();
       final receivePort = ReceivePort();
       await Isolate.spawn(
-        isolateFunction,
-        [receivePort.sendPort, framesPaths, lower, upper, rootIsolateToken],
-        debugName: 'Procesamiento-$i'
+          isolateFunction,
+          [receivePort.sendPort, framesPaths, lower, upper, rootIsolateToken],
+          debugName: 'Procesamiento-$i'
       );
       receivePort.listen((message) {
         completer.complete(message as List<bool>);
-        receivePort.close(); // Cierra el puerto cuando recibes el resultado
+        receivePort.close();
       });
       futures.add(completer.future);
     }
-    await Future.wait(futures); // Espera a todos los isolates
-    int timerPreprocessEnd = DateTime.now().millisecondsSinceEpoch;
+    await Future.wait(futures);
+    int tiempoFinML = DateTime.now().millisecondsSinceEpoch;
 
-    print("-----> Extract time DART                     ------> ${timeExtractEnd - timerExtract} ms");
-    print("-----> ML time DART                          ------> ${timerPreprocessEnd - timeExtractEnd} ms");
-    print("-----> TIEMPO TOTAL PREPROCESSING VIDEO DART ------> ${timerPreprocessEnd - timerPreprocess} ms");
+    print("DART Extraccion: ${tiempoFinExtraccion - tiempoInicioExtraccion} ms");
+    print("DART ML: ${tiempoFinML - tiempoFinExtraccion} ms");
+    print("DART Total: ${tiempoFinML - tiempoInicioTotal} ms");
     developer.Timeline.finishSync();
+
+    developer.Timeline.finishSync();
+    return ResultadoBenchmark(
+      nombreVideo: rutaVideo.split('/').last,
+      tecnologia: "Isolates Dart",
+      tiempoExtraccion: tiempoFinExtraccion - tiempoInicioExtraccion,
+      tiempoML: tiempoFinML - tiempoFinExtraccion,
+      tiempoTotal: tiempoFinML - tiempoInicioTotal,
+      cantidadFrames: framesPaths.length
+    );
   }
 
   Future<void> preProcessVideoOld(String videoFilePath) async {
@@ -265,6 +277,9 @@ class FrameChecker{
       if (ReturnCode.isSuccess(returnCode)) {
         //  _logger.info('Frame Export Success');
         var totalFrames = await _getFramesNumber(videoFilePath);
+
+        print("DART: Frames extraidos: $totalFrames");
+
         for (var a = 1; a <= totalFrames; a++) {
           if (a < 10) {
             ret.add('${directory}img-000$a.$FRAME_EXTENSION');
@@ -295,7 +310,7 @@ class FrameChecker{
       (line) => line.contains("nb_frames"),
       orElse: () => ""
     );
-    print("framesInfo: $framesInfo");
+    print("framesInfo DART =============>>>> $framesInfo");
     if (framesInfo.isEmpty || !framesInfo.contains("=")) {
       throw Exception("No se encontró nb_frames en la info del video");
     }
@@ -369,4 +384,60 @@ class FrameChecker{
     DeviceOrientation.portraitDown: 180,
     DeviceOrientation.landscapeRight: 270,
   };
+
+
+  Future<List<String>> extractFramesDisco(String videoFilePath) async {
+    List<String> ret = List.empty(growable: true);
+    await requestPermission(Permission.manageExternalStorage);
+    final String directory = await getDownloadDirectory();
+
+    final dir = Directory(directory);
+
+    // 1. Limpieza previa
+    if (await dir.exists()) {
+      try {
+        final List<FileSystemEntity> existingFiles = dir.listSync();
+        for (var file in existingFiles) {
+          if (file.path.endsWith(FRAME_EXTENSION)) {
+            await file.delete();
+          }
+        }
+      } catch (e) {
+        print("Error limpiando carpeta: $e");
+      }
+    }
+
+    // 2. Ejecutar FFmpeg (Genera los archivos fisicos)
+    var command = '-i ${videoFilePath} -f image2 ${directory}img-%04d.$FRAME_EXTENSION';
+
+    await FFmpegKit.execute(command).then((session) async {
+      final returnCode = await session.getReturnCode();
+
+      if (ReturnCode.isSuccess(returnCode)) {
+
+        // Leemos el directorio fisico
+        if (await dir.exists()) {
+          final List<FileSystemEntity> files = dir.listSync();
+
+          // Filtramos solo los BMP y obtenemos sus rutas
+          var bmpFiles = files
+              .where((file) => file.path.endsWith(FRAME_EXTENSION))
+              .map((file) => file.path)
+              .toList();
+
+          // Ordenamos alfabeticamente para asegurar el orden del video
+          bmpFiles.sort();
+
+          ret = bmpFiles;
+
+          print("DART_DEBUG: Frames encontrados en disco: ${ret.length}");
+        }
+      } else {
+        print("DART_ERROR: FFmpeg fallo con codigo $returnCode");
+      }
+    });
+
+    return ret;
+  }
 }
+
