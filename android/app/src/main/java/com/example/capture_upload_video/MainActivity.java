@@ -27,6 +27,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import com.google.mlkit.vision.common.InputImage;
 import com.google.mlkit.vision.facemesh.FaceMesh;
@@ -34,6 +35,9 @@ import com.google.android.gms.tasks.Tasks;
 
 public class MainActivity extends FlutterActivity {
     private static final String CHANNEL = "video_preprocessor";
+
+    // defino el tamano del lote chico
+    private static final int TAMANO_LOTE = 5;
 
     @Override
     public void configureFlutterEngine(@NonNull FlutterEngine flutterEngine) {
@@ -44,7 +48,7 @@ public class MainActivity extends FlutterActivity {
                         (call, result) -> {
                             if (call.method.equals("preProcessVideo")) {
                                 String videoPath = call.argument("videoFilePath");
-                                // llamo a la funcion interna pasando el resultado para responder despues
+                                // arranco todo el proceso en otro hilo para no congelar la UI
                                 iniciarProcesamientoVideo(videoPath, result);
                             } else if (call.method.equals("setRotation")) {
                                 result.success(null);
@@ -74,6 +78,7 @@ public class MainActivity extends FlutterActivity {
         if (dir.exists()) { for (File f : dir.listFiles()) f.delete(); }
         dir.mkdirs();
 
+        // extraigo imagenes bmp para que sea rapido leerlas despues
         String patronArchivo = new File(dir, "img-%04d.bmp").getAbsolutePath();
         String comando = "-i " + videoPath + " -f image2 " + patronArchivo;
 
@@ -87,43 +92,63 @@ public class MainActivity extends FlutterActivity {
         }
 
         System.out.println("---> JAVA: Frames extraidos: " + rutasFrames.size());
-
         return rutasFrames;
     }
 
+    // Memoria compartida
     private List<Boolean> procesarFramesEnParalelo(List<String> todosLosFrames) throws InterruptedException, ExecutionException {
         int nucleos = Runtime.getRuntime().availableProcessors();
-
         ExecutorService servicioEjecutor = Executors.newFixedThreadPool(nucleos);
+
         List<Callable<List<Boolean>>> tareas = new ArrayList<>();
-        int cantidadTotalFrames = todosLosFrames.size();
+        int totalFrames = todosLosFrames.size();
 
-        // Evitamos division por cero si no hay frames
-        if (cantidadTotalFrames == 0) return new ArrayList<>();
+        if (totalFrames == 0) return new ArrayList<>();
 
-        int tamanoLote = (int) Math.ceil((double) cantidadTotalFrames / nucleos);
+        // este contador es la memoria compartida, es thread-safe
+        // garantiza que si dos hilos intentan sumar a la vez no se pisen, internamente
+        // funciona como un semaforo
+        AtomicInteger indiceGlobal = new AtomicInteger(0);
 
+        // creo tantos trabajadores como nucleos tenga el celu
         for (int i = 0; i < nucleos; i++) {
-            int inicio = i * tamanoLote;
-            int fin = Math.min(inicio + tamanoLote, cantidadTotalFrames);
-            if (inicio >= fin) break;
-            List<String> subListaFrames = todosLosFrames.subList(inicio, fin);
-
             tareas.add(() -> {
                 FaceMeshDetectorOptions opciones = new FaceMeshDetectorOptions.Builder()
                         .setUseCase(FaceMeshDetectorOptions.FACE_MESH).build();
                 FaceMeshDetector detectorLocal = FaceMeshDetection.getClient(opciones);
-                List<Boolean> resultadosDelLote = new ArrayList<>();
-                for (String rutaFrame : subListaFrames) {
-                    resultadosDelLote.add(analizarFrame(detectorLocal, rutaFrame));
+                List<Boolean> resultadosLocales = new ArrayList<>();
+
+                // bucle infinito hasta que se acaben los frames
+                while (true) {
+                    // pido el siguiente lote de trabajo de forma segura
+                    int inicio = indiceGlobal.getAndAdd(TAMANO_LOTE);
+
+                    // si el indice se paso del total, corto aca
+                    if (inicio >= totalFrames) break;
+
+                    // calculo hasta donde llega este lote sin pasarme del total
+                    int fin = Math.min(inicio + TAMANO_LOTE, totalFrames);
+
+                    // proceso mi lote asignado
+                    for (int k = inicio; k < fin; k++) {
+                        String rutaFrame = todosLosFrames.get(k);
+                        resultadosLocales.add(analizarFrame(detectorLocal, rutaFrame));
+                    }
                 }
+
                 detectorLocal.close();
-                return resultadosDelLote;
+                return resultadosLocales;
             });
         }
+
         List<Future<List<Boolean>>> futuros = servicioEjecutor.invokeAll(tareas);
         List<Boolean> resultadosCombinados = new ArrayList<>();
-        for (Future<List<Boolean>> futuro : futuros) { resultadosCombinados.addAll(futuro.get()); }
+
+        // junto todo lo que procesaron los hilos
+        for (Future<List<Boolean>> futuro : futuros) {
+            resultadosCombinados.addAll(futuro.get());
+        }
+
         servicioEjecutor.shutdown();
         return resultadosCombinados;
     }
@@ -145,19 +170,19 @@ public class MainActivity extends FlutterActivity {
                     return;
                 }
 
-                // 2. procesamiento
+                // 2. procesamiento con memoria compartida
                 long tiempoMLInicio = System.currentTimeMillis();
                 procesarFramesEnParalelo(frames);
                 long tiempoMLFin = System.currentTimeMillis();
 
-                // 3. mapa de tiempos en espanol
+                // 3. calculo metricas para devolver
                 Map<String, Long> tiempos = new HashMap<>();
                 tiempos.put("extraccion", tiempoExtraccionFin - tiempoExtraccionInicio);
                 tiempos.put("ml", tiempoMLFin - tiempoMLInicio);
                 tiempos.put("total", (tiempoMLFin - tiempoMLInicio) + (tiempoExtraccionFin - tiempoExtraccionInicio));
                 tiempos.put("frames", (long) frames.size());
 
-                // 4. respuesta a flutter
+                // 4. mando la respuesta a flutter
                 new Handler(Looper.getMainLooper()).post(() -> {
                     System.out.println("JAVA: Enviando datos: " + tiempos.toString());
                     result.success(tiempos);
