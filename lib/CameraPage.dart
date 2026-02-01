@@ -26,7 +26,7 @@ class _CameraPageState extends State<CameraPage> {
   Light? _light;
   StreamSubscription? _subscription;
   MyClipper clipper = MyClipper();
-  final int RECORDING_MAX_SECS = 12;
+  final int RECORDING_MAX_SECS = 30;
   late int _countDownSeconds;
   late int currFrame = 0;
 
