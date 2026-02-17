@@ -205,6 +205,8 @@ class FrameChecker{
     print("DART Total: ${tiempoFinML - tiempoInicioTotal} ms");
     developer.Timeline.finishSync();
 
+    await _limpiarFramesDisco(framesPaths);
+
     developer.Timeline.finishSync();
     return ResultadoBenchmark(
       nombreVideo: rutaVideo.split('/').last,
@@ -385,6 +387,20 @@ class FrameChecker{
     DeviceOrientation.landscapeRight: 270,
   };
 
+  Future<void> _limpiarFramesDisco(List<String> frames) async {
+    print("DART: Iniciando limpieza de ${frames.length} archivos...");
+    try {
+      for (String path in frames) {
+        final file = File(path);
+        if (await file.exists()) {
+          await file.delete();
+        }
+      }
+      print("DART: Limpieza completada.");
+    } catch (e) {
+      print("DART: Error durante limpieza: $e");
+    }
+  }
 
   Future<List<String>> extractFramesDisco(String videoFilePath) async {
     List<String> ret = List.empty(growable: true);
