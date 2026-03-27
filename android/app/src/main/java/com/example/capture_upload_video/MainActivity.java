@@ -72,6 +72,7 @@ public class MainActivity extends FlutterActivity {
     }
 
     private List<String> extraerFrames(String videoPath) {
+        Trace.beginSection("JAVA_EXTRACCION");
         List<String> rutasFrames = new ArrayList<>();
         File dir = new File(getCacheDir(), "frames");
 
@@ -92,11 +93,13 @@ public class MainActivity extends FlutterActivity {
         }
 
         System.out.println("---> JAVA: Frames extraidos: " + rutasFrames.size());
+        Trace.endSection();
         return rutasFrames;
     }
 
     // Memoria compartida
     private List<Boolean> procesarFramesEnParalelo(List<String> todosLosFrames) throws InterruptedException, ExecutionException {
+        Trace.beginSection("JAVA_PROCESAMIENTO");
         int nucleos = Runtime.getRuntime().availableProcessors();
         ExecutorService servicioEjecutor = Executors.newFixedThreadPool(nucleos);
 
@@ -150,6 +153,7 @@ public class MainActivity extends FlutterActivity {
         }
 
         servicioEjecutor.shutdown();
+        Trace.endSection();
         return resultadosCombinados;
     }
 
