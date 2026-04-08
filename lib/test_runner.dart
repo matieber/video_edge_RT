@@ -1,107 +1,62 @@
 import 'dart:io';
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-import 'package:capture_upload_video/VideoPreProcessor.dart';
-import 'package:capture_upload_video/video_checker.dart';
-import 'resultadoBenchmark.dart';
-
 class TestRunner {
-  final String rutaBase = "/storage/emulated/0/Download/dataset/";
-  final String rutaCsv = "/storage/emulated/0/Download/dataset/resultados_benchmark.csv";
+  final String rutaCsvLive = "/storage/emulated/0/Download/dataset/resultados_live.csv";
 
+  // Esta funcion ya no procesa imagenes, solo recibe los resultados de Java y los guarda
+  Future<void> procesarResultadosNativos(BuildContext context, int duracion, int capturados, int procesados) async {
+    
+    int framesDroppeados = capturados - procesados;
+    double fpsReales = procesados / duracion;
 
-  Future<void> correrTestAleatorio(BuildContext context, {required String nombreCarpeta}) async {
-      print("Buscando videos en: $nombreCarpeta");
+    String msjLog = """
+    --- RESULTADOS NATIVOS (CAMERA-X) ---
+    Duracion: ${duracion}s
+    Capturados: $capturados
+    Procesados: $procesados
+    Descartados: $framesDroppeados
+    FPS Reales: ${fpsReales.toStringAsFixed(2)}
+    -------------------------------------
+    """;
+    
+    print(msjLog);
 
-      if (!await Permission.manageExternalStorage.isGranted) {
-        await Permission.manageExternalStorage.request();
-      }
+    await _guardarEnCsv(duracion, capturados, procesados, framesDroppeados, fpsReales);
 
-      final dir = Directory("$rutaBase$nombreCarpeta/");
-
-      if (!await dir.exists()) {
-        print("Error: La carpeta $nombreCarpeta no existe");
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('No existe la carpeta $nombreCarpeta'))
-        );
-        return;
-      }
-
-      List<FileSystemEntity> videos = dir.listSync()
-          .where((file) => file.path.endsWith('.mp4'))
-          .toList();
-
-      if (videos.isEmpty) {
-        print("Error: Carpeta vacia");
-        return;
-      }
-
-      // preparo el archivo csv
-      final archivoCsv = File(rutaCsv);
-      if (!await archivoCsv.exists()) {
-        await archivoCsv.writeAsString(
-            "Video,Tecnologia,Tiempo_Extraccion_ms,Tiempo_ML_ms,Tiempo_Total_ms\n");
-      }
-
-      final random = Random();
-      final archivoVideo = videos[random.nextInt(videos.length)];
-      String nombreArchivo = archivoVideo.path
-          .split('/')
-          .last;
-
-      print("Video elegido: $nombreArchivo");
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Procesando: $nombreArchivo'))
+    if (context.mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            title: Text("Resultados Nativos (Zero-Copy)"),
+            content: Text(msjLog),
+            actions: [
+              TextButton(
+                child: Text("OK"),
+                onPressed: () => Navigator.of(context).pop(),
+              )
+            ],
+          );
+        },
       );
-
-      //final dartChecker = FrameChecker();
-      final javaProcessor = VideoPreProcessor();
-
-      await Future.delayed(const Duration(seconds: 45));
-
-    /*
-      // --- TEST DART ---
-      print("--- Corriendo Dart ---");
-      final swDart = Stopwatch()
-        ..start();
-      try {
-        ResultadoBenchmark resultado = await dartChecker.preProcessVideo(
-            archivoVideo.path);
-        await _guardarEnCsv(archivoCsv, resultado);
-      } catch (e) {
-        print("Fallo Dart: $e");
-      } // -------------------------------
-
-      swDart.stop();
-      */
-      // pausa para enfriar
-      //await Future.delayed(const Duration(seconds: 10));
-
-
-      // --- TEST JAVA ---
-      print("--- Corriendo Java ---");
-      final swJava = Stopwatch()..start();
-      try {
-        ResultadoBenchmark? resultado = await javaProcessor.preProcessVideo(archivoVideo.path);
-        if (resultado != null) {
-          await _guardarEnCsv(archivoCsv, resultado);
-        }
-      } catch (e) {
-        print("Fallo Java: $e");
-      }
-      swJava.stop();
-
-      //dartChecker.dispose();
-
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Datos guardados en resultados_benchmark.csv'))
-      );
+    }
   }
 
-  Future<void> _guardarEnCsv(File archivo, ResultadoBenchmark resultado) async {
-    await archivo.writeAsString("${resultado.generarLineaCsv()}\n", mode: FileMode.append);
-    print("Guardado en CSV: ${resultado.generarLineaCsv()}");
+  Future<void> _guardarEnCsv(int duracion, int capturados, int procesados, int droppeados, double fps) async {
+    if (!await Permission.manageExternalStorage.isGranted) {
+      await Permission.manageExternalStorage.request();
+    }
+    final archivoCsv = File(rutaCsvLive);
+    if (!await archivoCsv.exists()) {
+      await archivoCsv.writeAsString("Timestamp,Tecnologia,Duracion_s,Capturados,Procesados,Droppeados,FPS_Reales\n");
+    }
+
+    String fechaHora = DateTime.now().toIso8601String();
+    String lineaDatos = "$fechaHora,Java_CameraX,$duracion,$capturados,$procesados,$droppeados,${fps.toStringAsFixed(2)}\n";
+
+    await archivoCsv.writeAsString(lineaDatos, mode: FileMode.append);
   }
 }

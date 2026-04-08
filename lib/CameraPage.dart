@@ -1,16 +1,12 @@
 import 'dart:io';
-
-import 'package:camera/camera.dart';
-import 'package:capture_upload_video/camera_view.dart';
+import 'package:flutter/services.dart'; // Necesario para StandardMessageCodec
 import 'package:capture_upload_video/utils.dart';
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:light/light.dart';
 import 'package:confirm_dialog/confirm_dialog.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:developer' as developer;
-import 'VideoPage.dart';
-import 'package:capture_upload_video/test_runner.dart'; // importo el runner
+import 'package:capture_upload_video/test_runner.dart';
 
 class CameraPage extends StatefulWidget {
   const CameraPage({super.key});
@@ -20,23 +16,16 @@ class CameraPage extends StatefulWidget {
 }
 
 class _CameraPageState extends State<CameraPage> {
+  static const platform = MethodChannel('benchmark_channel');
   bool _isLoading = true;
   bool _isRecording = false;
   String _luxString = 'Unknown';
   Light? _light;
   StreamSubscription? _subscription;
   MyClipper clipper = MyClipper();
-  final int RECORDING_MAX_SECS = 30;
+  
   late int _countDownSeconds;
-  late int currFrame = 0;
-
   int _currentIndex = 0;
-
-  late CameraView cameraView;
-  late CameraController _cameraController;
-
-  final String _serverIp = 'Not set';
-
   Timer? _timer;
 
   void _onTabTapped(int index) {
@@ -45,31 +34,10 @@ class _CameraPageState extends State<CameraPage> {
     });
   }
 
-  void _startTimer() {
-    if (_timer != null) {
-      _timer!.cancel();
-    }
-    setState(() {
-      _countDownSeconds = RECORDING_MAX_SECS;
-    });
-
-    _timer = Timer.periodic(Duration(seconds: 1), (timer) {
-      if (_countDownSeconds >= 1) {
-        setState(() {
-          _countDownSeconds--;
-        });
-      } else {
-        timer.cancel();
-        if (_isRecording)
-          _recordVideo();
-      }
-    });
-  }
-
   @override
   void dispose() {
     _timer?.cancel();
-    _cameraController.dispose();
+    stopListening();
     super.dispose();
   }
 
@@ -92,40 +60,61 @@ class _CameraPageState extends State<CameraPage> {
     }
   }
 
-  _recordVideo() async {
-    if (_isRecording) {
-      developer.Timeline.startSync('GRABACION VIDEO');
-
-      final file = await _cameraController.stopVideoRecording();
-      print("video file stored at: ${file.path}");
-      setState(() => _isRecording = false);
-      final route = MaterialPageRoute(
-        fullscreenDialog: true,
-        builder: (_) => VideoPage(
-            filePath: file.path,
-            adj_w: clipper.get_width_adjustment(),
-            adj_h: clipper.get_height_adjustment()),
-      );
-      Navigator.push(context, route);
-
-      developer.Timeline.finishSync();
-    } else {
-      currFrame = 0;
-      await _cameraController.prepareForVideoRecording();
-      await _cameraController.startVideoRecording();
-      _startTimer();
-      setState(() {
-        _isRecording = true;
-        _countDownSeconds = RECORDING_MAX_SECS;
-      });
+  // Nuevo Timer especifico para el test visual
+  void _startLiveTimer() {
+    if (_timer != null) {
+      _timer!.cancel();
     }
+    setState(() {
+      _countDownSeconds = 30; // Forzamos los 30 segundos
+    });
+
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_countDownSeconds > 0) {
+        setState(() {
+          _countDownSeconds--;
+        });
+      } else {
+        timer.cancel();
+        setState(() {
+          _isRecording = false;
+        });
+      }
+    });
+  }
+
+void _iniciarTestLive() async {
+    if (_isRecording) return;
+
+    setState(() {
+      _isRecording = true;
+    });
+
+    _startLiveTimer(); // Arranca timer UI de 30s
+
+    // 1. Le decimos a Java que empiece a contar
+    await platform.invokeMethod('startBenchmark');
+
+    // 2. Dart espera 30 s
+    await Future.delayed(const Duration(seconds: 30));
+
+    // 3. Le decimos a Java que pare y nos devuelva los resultados
+    final Map<dynamic, dynamic> stats = await platform.invokeMethod('stopBenchmark');
+
+    // 4. Mandamos los datos al TestRunner para guardar en CSV y mostrar el cartel
+    TestRunner runner = TestRunner();
+    await runner.procesarResultadosNativos(
+        context, 
+        30, 
+        stats['capturados'] ?? 0, 
+        stats['procesados'] ?? 0
+    );
   }
 
   Future<String> _getMaxLightLevel() async {
     try {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
       final String? level = prefs.getString('maximum_light');
-
       return level ?? _luxString;
     } catch (e) {
       print(e);
@@ -144,35 +133,45 @@ class _CameraPageState extends State<CameraPage> {
   }
 
   Widget _getRecordPage() {
+    // Tomamos el tamano total de la pantalla 
+    final screenSize = MediaQuery.of(context).size;
+
     return Center(
       child: Stack(
         alignment: Alignment.bottomCenter,
         children: [
-          Container(
-              decoration: BoxDecoration(
-                border:
-                Border.all(color: Colors.blue, width: 4),
-              ),
-              child: ClipOval(
-                clipper: clipper,
-                child: CameraPreview(_cameraController),
-              )),
+          // Centramos el óvalo un poco más arriba para que no choque con los botones
+          Align(
+            alignment: Alignment.topCenter,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 50.0),
+              child: Container(
+                  // Le ponemos un límite estricto de tamaño
+                  width: screenSize.width * 0.9,
+                  height: screenSize.height * 0.65,
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.blue, width: 4),
+                  ),
+                  child: ClipOval(
+                    clipper: clipper,
+                    child: const NativeCameraWidget(),
+                  )),
+            ),
+          ),
           Row(children: [
             Padding(
               padding: const EdgeInsets.all(25),
               child: FloatingActionButton(
                 heroTag: "record",
                 backgroundColor: Colors.red,
-                child: Icon(_isRecording ? Icons.stop : Icons.circle),
-                onPressed: () => _recordVideo(),
+                child: Icon(_isRecording ? Icons.stop : Icons.camera_front),
+                onPressed: () => _iniciarTestLive(),
               ),
             ),
             _isRecording
-                ? Text('Hold still! ' + _countDownSeconds.toString() + ' secs.',
-                style: DefaultTextStyle.of(context)
-                    .style
-                    .apply(fontSizeFactor: 0.3))
-                : SizedBox.shrink(),
+                ? Text('Test Live: ' + _countDownSeconds.toString() + ' segs.',
+                    style: DefaultTextStyle.of(context).style.apply(fontSizeFactor: 0.3))
+                : const SizedBox.shrink(),
           ])
         ],
       ),
@@ -180,7 +179,8 @@ class _CameraPageState extends State<CameraPage> {
   }
 
   Widget _getLightPage() {
-    return Center(child:Column(children: [
+    return Center(
+        child: Column(children: [
       Padding(
         padding: const EdgeInsets.all(25),
         child: FloatingActionButton(
@@ -195,7 +195,7 @@ class _CameraPageState extends State<CameraPage> {
         future: _getMaxLightLevel(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return CircularProgressIndicator();
+            return const CircularProgressIndicator();
           } else if (snapshot.hasError) {
             return Text('Error: ${snapshot.error}');
           } else {
@@ -206,67 +206,34 @@ class _CameraPageState extends State<CameraPage> {
     ]));
   }
 
-  // Aca modifique para agregar el boton de test
   Widget _getConfigurationPage() {
-    return Center(child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          FutureBuilder<String>(
-            future: setOrGetUsername(context),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return CircularProgressIndicator();
-              } else if (snapshot.hasError) {
-                return Text('Error: ${snapshot.error}');
-              } else {
-                return Text('Usuario: ${snapshot.data}');
-              }
-            },
-          ),
-          SizedBox(height: 50),
-          Text("Seleccionar Benchmark:", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          SizedBox(height: 20),
-
-          // FILA DE BOTONES
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              // boton para videos cortos
-              ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 15)
-                  ),
-                  onPressed: () async {
-                    TestRunner runner = TestRunner();
-                    // le paso la carpeta cortos
-                    await runner.correrTestAleatorio(context, nombreCarpeta: "cortos");
-                  },
-                  child: Text("CORTOS (12s)")
-              ),
-
-              // boton para videos largos
-              ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.orange,
-                      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 15)
-                  ),
-                  onPressed: () async {
-                    TestRunner runner = TestRunner();
-                    // le paso la carpeta largos
-                    await runner.correrTestAleatorio(context, nombreCarpeta: "largos");
-                  },
-                  child: Text("LARGOS (30s)")
-              ),
-            ],
-          ),
-
-          Padding(
-              padding: EdgeInsets.only(top: 30),
-              child: Text("Videos en: Download/dataset/...", style: TextStyle(fontSize: 12, color: Colors.grey))
-          )
-        ]
-    ));
+    return Center(
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+      FutureBuilder<String>(
+        future: setOrGetUsername(context),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const CircularProgressIndicator();
+          } else if (snapshot.hasError) {
+            return Text('Error: ${snapshot.error}');
+          } else {
+            return Text('Usuario: ${snapshot.data}');
+          }
+        },
+      ),
+      const SizedBox(height: 50),
+      const Text("Configuración de Benchmark",
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+      const SizedBox(height: 20),
+      const Padding(
+        padding: EdgeInsets.all(20.0),
+        child: Text(
+          "El test nativo en vivo ahora se ejecuta desde la pestaña 'Record' (botón rojo) para previsualizar la cámara nativa en tiempo real.",
+          textAlign: TextAlign.center,
+          style: TextStyle(color: Colors.grey),
+        ),
+      )
+    ]));
   }
 
   @override
@@ -281,13 +248,13 @@ class _CameraPageState extends State<CameraPage> {
     } else {
       return Scaffold(
         appBar: AppBar(
-          title: Text('iPPG dataset creator'),
+          title: const Text('iPPG dataset creator'),
         ),
         body: _getCurrentPage(),
         bottomNavigationBar: BottomNavigationBar(
           currentIndex: _currentIndex,
           onTap: _onTabTapped,
-          items: [
+          items: const [
             BottomNavigationBarItem(
               icon: Icon(Icons.video_camera_front_outlined),
               label: 'Record',
@@ -300,80 +267,6 @@ class _CameraPageState extends State<CameraPage> {
               icon: Icon(Icons.fact_check),
               label: 'Configuration',
             ),
-          ],
-        ),
-      );
-    }
-  }
-
-  Widget build2(BuildContext context) {
-    Future<String> future = _getMaxLightLevel();
-    if (_isLoading) {
-      return Container(
-        color: Colors.white,
-        child: const Center(
-          child: CircularProgressIndicator(),
-        ),
-      );
-    } else {
-      return Center(
-        child: Stack(
-          alignment: Alignment.bottomCenter,
-          children: [
-            Container(
-                decoration: BoxDecoration(
-                  border:
-                  Border.all(color: Colors.blue, width: 4),
-                ),
-                child: ClipOval(
-                  clipper: clipper,
-                  child: CameraPreview(_cameraController),
-                )),
-            Row(children: [
-              Padding(
-                padding: const EdgeInsets.all(25),
-                child: FloatingActionButton(
-                  heroTag: "record",
-                  backgroundColor: Colors.red,
-                  child: Icon(_isRecording ? Icons.stop : Icons.circle),
-                  onPressed: () => _recordVideo(),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(25),
-                child: FloatingActionButton(
-                  heroTag: "light",
-                  backgroundColor: Colors.yellow,
-                  child: const Icon(Icons.light_mode_outlined),
-                  onPressed: () => {_setMaximumLightLevel()},
-                ),
-              ),
-              Text('Lx: $_luxString\n',
-                  style: DefaultTextStyle.of(context)
-                      .style
-                      .apply(fontSizeFactor: 0.3)),
-              _isRecording
-                  ? Text('\n\n\n' + _countDownSeconds.toString() + ' s.',
-                  style: DefaultTextStyle.of(context)
-                      .style
-                      .apply(fontSizeFactor: 0.3))
-                  : SizedBox.shrink(),
-              FutureBuilder<String>(
-                  future: future,
-                  builder:
-                      (BuildContext context, AsyncSnapshot<String> snapshot) {
-                    String msg = "Unset";
-                    if (snapshot.hasData) {
-                      msg = snapshot.data!;
-                    } else if (snapshot.hasError) {
-                      msg = "Error";
-                    }
-                    return Text(' Max: $msg\n',
-                        style: DefaultTextStyle.of(context)
-                            .style
-                            .apply(fontSizeFactor: 0.3));
-                  })
-            ])
           ],
         ),
       );
@@ -400,27 +293,9 @@ class _CameraPageState extends State<CameraPage> {
   }
 
   _initCamera() async {
-    _isLoading = true;
-    _isRecording = false;
-    final cameras = await availableCameras();
-    final frontCamera = cameras.firstWhere(
-            (camera) => camera.lensDirection == CameraLensDirection.front);
-
-    _cameraController = CameraController(
-      frontCamera,
-      ResolutionPreset.high,
-      enableAudio: false,
-      imageFormatGroup: Platform.isAndroid
-          ? ImageFormatGroup.nv21
-          : ImageFormatGroup.bgra8888,
-    );
-    _cameraController.initialize().then((_) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _isLoading = false;
-      });
+    // Ya no inicializamos la camara de Dart, Java se encarga de todo.
+    setState(() {
+      _isLoading = false;
     });
     startListening();
   }
@@ -446,18 +321,18 @@ class MyClipper extends CustomClipper<Rect> {
     height = size.height;
     width = size.width;
 
-    print("Clip size: (" + height.toString() + ", " + width.toString() + ")");
     double aspect = height / width;
-    if (aspect > 1.77)
+    if (aspect > 1.77) {
       return Rect.fromCenter(
           center: center,
           width: size.width * _adj_w_177,
           height: size.height * _adj_h_177);
-    else
+    } else {
       return Rect.fromCenter(
           center: center,
           width: size.width * _adj_w,
           height: size.height * _adj_h);
+    }
   }
 
   @override
@@ -471,5 +346,18 @@ class MyClipper extends CustomClipper<Rect> {
 
   double get_height_adjustment() {
     return _adj_h;
+  }
+}
+
+class NativeCameraWidget extends StatelessWidget {
+  const NativeCameraWidget({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return const AndroidView(
+      viewType: 'native_camera_view',
+      layoutDirection: TextDirection.ltr,
+      creationParamsCodec: StandardMessageCodec(),
+    );
   }
 }
