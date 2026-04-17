@@ -1,4 +1,7 @@
-Timestamp,Tecnologia,Duracion_s,Capturados,Procesados,Droppeados,FPS_Reales
-2026-04-03T18:19:07.555311,Java_CameraX,30,465,464,1,15.47
-2026-04-07T09:36:13.147142,Java_CameraX,30,481,480,1,16.00
-2026-04-07T09:45:03.210154,Java_CameraX,30,481,481,0,16.03
+Timestamp,Tecnologia,Duracion_s,Capturados_Reales,Procesados,Descartados,FPS_Camara_Sensor,FPS_Modelo,Frames_Con_Cara
+2026-04-16T21:16:24.679756,Java_StreamBuffer,30,421,420,1,0.00,14.00,420
+2026-04-16T21:19:12.051781,Java_CameraX,30,419,404,15,13.47
+2026-04-16T21:20:50.515788,Java_CameraX,30,462,461,1,15.37
+2026-04-16T21:33:38.699900,Java_CameraX,30,748,487,261,24.93,16.23
+2026-04-16T21:36:43.760519,Java_CameraX,30,748,475,273,24.93,15.83
+2026-04-16T21:37:39.246070,Java_CameraX,30,748,495,253,24.93,16.50

@@ -20,16 +20,19 @@ public class MainActivity extends FlutterActivity {
         new MethodChannel(flutterEngine.getDartExecutor().getBinaryMessenger(), CHANNEL)
                 .setMethodCallHandler((call, result) -> {
                     if (call.method.equals("startBenchmark")) {
-                        NativeCameraView.framesCapturados = 0;
+                        NativeCameraView.framesHardwareTotales = 0;
                         NativeCameraView.framesProcesados = 0;
                         NativeCameraView.isBenchmarking = true;
                         result.success(null);
                     } 
                     else if (call.method.equals("stopBenchmark")) {
                         NativeCameraView.isBenchmarking = false;
+                        
                         Map<String, Integer> stats = new HashMap<>();
-                        stats.put("capturados", NativeCameraView.framesCapturados);
+                        // Mandamos la cantidad real de frames que genero la camara fisicamente
+                        stats.put("hardwareTotales", NativeCameraView.framesHardwareTotales);
                         stats.put("procesados", NativeCameraView.framesProcesados);
+                        
                         result.success(stats);
                     } 
                     else {

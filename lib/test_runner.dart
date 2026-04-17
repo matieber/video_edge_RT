@@ -6,56 +6,41 @@ class TestRunner {
   final String rutaCsvLive = "/storage/emulated/0/Download/dataset/resultados_live.csv";
 
   // Esta funcion ya no procesa imagenes, solo recibe los resultados de Java y los guarda
-  Future<void> procesarResultadosNativos(BuildContext context, int duracion, int capturados, int procesados) async {
+Future<void> procesarResultadosNativos(BuildContext context, int duracion, int hardwareTotales, int procesados) async {
     
-    int framesDroppeados = capturados - procesados;
-    double fpsReales = procesados / duracion;
+    int descartados = hardwareTotales - procesados;
+    double fpsCamaraReal = hardwareTotales / duracion;
+    double fpsModelo = procesados / duracion;
 
     String msjLog = """
-    --- RESULTADOS NATIVOS (CAMERA-X) ---
+    --- RESULTADOS ---
     Duracion: ${duracion}s
-    Capturados: $capturados
-    Procesados: $procesados
-    Descartados: $framesDroppeados
-    FPS Reales: ${fpsReales.toStringAsFixed(2)}
+    Total Fotos del Sensor: $hardwareTotales
+    Frames Procesados: $procesados
+    Frames Descartados: $descartados
+    FPS Camara Real: ${fpsCamaraReal.toStringAsFixed(2)}
+    FPS Modelo: ${fpsModelo.toStringAsFixed(2)}
     -------------------------------------
     """;
     
     print(msjLog);
 
-    await _guardarEnCsv(duracion, capturados, procesados, framesDroppeados, fpsReales);
+    await _guardarEnCsv(duracion, hardwareTotales, procesados, descartados, fpsCamaraReal, fpsModelo);
 
-    if (context.mounted) {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (BuildContext context) {
-          return AlertDialog(
-            title: Text("Resultados Nativos (Zero-Copy)"),
-            content: Text(msjLog),
-            actions: [
-              TextButton(
-                child: Text("OK"),
-                onPressed: () => Navigator.of(context).pop(),
-              )
-            ],
-          );
-        },
-      );
-    }
+
   }
 
-  Future<void> _guardarEnCsv(int duracion, int capturados, int procesados, int droppeados, double fps) async {
+  Future<void> _guardarEnCsv(int duracion, int hardwareTotales, int procesados, int droppeados, double fps, double fpsModelo) async {
     if (!await Permission.manageExternalStorage.isGranted) {
       await Permission.manageExternalStorage.request();
     }
     final archivoCsv = File(rutaCsvLive);
     if (!await archivoCsv.exists()) {
-      await archivoCsv.writeAsString("Timestamp,Tecnologia,Duracion_s,Capturados,Procesados,Droppeados,FPS_Reales\n");
+      await archivoCsv.writeAsString("Timestamp,Tecnologia,Duracion_s,Capturados,Procesados,Droppeados,FPS_Reales,FPS_Modelo\n");
     }
 
     String fechaHora = DateTime.now().toIso8601String();
-    String lineaDatos = "$fechaHora,Java_CameraX,$duracion,$capturados,$procesados,$droppeados,${fps.toStringAsFixed(2)}\n";
+    String lineaDatos = "$fechaHora,Java_CameraX,$duracion,$hardwareTotales,$procesados,$droppeados,${fps.toStringAsFixed(2)},${fpsModelo.toStringAsFixed(2)}\n";
 
     await archivoCsv.writeAsString(lineaDatos, mode: FileMode.append);
   }

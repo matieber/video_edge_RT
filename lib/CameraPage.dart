@@ -101,13 +101,16 @@ void _iniciarTestLive() async {
     // 3. Le decimos a Java que pare y nos devuelva los resultados
     final Map<dynamic, dynamic> stats = await platform.invokeMethod('stopBenchmark');
 
-    // 4. Mandamos los datos al TestRunner para guardar en CSV y mostrar el cartel
+    int hardwareTotales = (stats['hardwareTotales'] ?? 0 as num).toInt();
+    int procesados = (stats['procesados'] ?? 0 as num).toInt();
+
+    // 4. Mandamos los datos al TestRunner. Ahora le pasamos la verdad absoluta
     TestRunner runner = TestRunner();
     await runner.procesarResultadosNativos(
         context, 
         30, 
-        stats['capturados'] ?? 0, 
-        stats['procesados'] ?? 0
+        hardwareTotales, // Total de fotos sacadas por el sensor
+        procesados       // Total de fotos digeridas por el modelo
     );
   }
 

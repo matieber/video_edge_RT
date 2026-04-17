@@ -28,14 +28,19 @@ import com.google.mlkit.vision.facemesh.FaceMeshDetector;
 import com.google.mlkit.vision.facemesh.FaceMeshDetectorOptions;
 import android.os.Trace;
 
+import androidx.camera.camera2.interop.Camera2Interop;
+import android.hardware.camera2.CameraCaptureSession;
+import android.hardware.camera2.CaptureRequest;
+import android.hardware.camera2.TotalCaptureResult;
+
 public class NativeCameraView implements PlatformView {
     private final FrameLayout container;
     private final PreviewView previewView;
     private ExecutorService cameraExecutor;
 
     public static boolean isBenchmarking = false;
-    public static int framesCapturados = 0;
     public static int framesProcesados = 0;
+    public static int framesHardwareTotales = 0;
     
     private boolean isBusy = false;
     private FaceMeshDetector detector;
@@ -65,7 +70,7 @@ public class NativeCameraView implements PlatformView {
         iniciarCamara();
     }
 
-    private void iniciarCamara() {
+private void iniciarCamara() {
         ListenableFuture<ProcessCameraProvider> cameraProviderFuture = ProcessCameraProvider.getInstance(context);
         cameraProviderFuture.addListener(() -> {
             try {
@@ -73,19 +78,36 @@ public class NativeCameraView implements PlatformView {
                 Preview preview = new Preview.Builder().build();
                 preview.setSurfaceProvider(previewView.getSurfaceProvider());
 
-                ImageAnalysis imageAnalysis = new ImageAnalysis.Builder()
-                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).build();
+                // 1. Empezamos a armar el ImageAnalysis
+                ImageAnalysis.Builder analysisBuilder = new ImageAnalysis.Builder()
+                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST);
+
+                // 2. Escuchamos los frames que salen del sensor de la camara (hardware) para contarlos y medir el FPS real de captura
+                Camera2Interop.Extender ext = new Camera2Interop.Extender(analysisBuilder);
+                ext.setSessionCaptureCallback(new CameraCaptureSession.CaptureCallback() {
+                    @Override
+                    public void onCaptureCompleted(@NonNull CameraCaptureSession session,
+                                                   @NonNull CaptureRequest request,
+                                                   @NonNull TotalCaptureResult result) {
+                        super.onCaptureCompleted(session, request, result);
+                        // Esto se dispara fisicamente por cada foto que saca el sensor de la camara al momento de la captura
+                        if (isBenchmarking) {
+                            framesHardwareTotales++; 
+                        }
+                    }
+                });
+
+                // 3. Construimos el ImageAnalysis
+                ImageAnalysis imageAnalysis = analysisBuilder.build();
 
                 imageAnalysis.setAnalyzer(cameraExecutor, new ImageAnalysis.Analyzer() {
                     @OptIn(markerClass = ExperimentalGetImage.class)
                     @Override
                     public void analyze(@NonNull ImageProxy imageProxy) {
-                        if (!isBenchmarking) {          // Hasta no tocar el boton rojo, descarta todos los frames
+                        if (!isBenchmarking) {          
                             imageProxy.close();
                             return;
                         }
-
-                        framesCapturados++;
 
                         if (isBusy) {
                             imageProxy.close();
@@ -93,21 +115,20 @@ public class NativeCameraView implements PlatformView {
                         }
                         
                         isBusy = true;
-                        // Extraemos la imagen en formato MediaImage, que es el que ML Kit necesita
                         Image mediaImage = imageProxy.getImage(); 
-                        
                         if (mediaImage != null) {
-                            // Ml Kit necesita los pixeles crudos y los metadatos de rotacion por eso llevamos la MediaImage a InputImage
                             InputImage image = InputImage.fromMediaImage(mediaImage, imageProxy.getImageInfo().getRotationDegrees());
-                            Trace.beginAsyncSection("MLKit_Inferencia_FaceMesh", framesCapturados);
+                            Trace.beginAsyncSection("MLKit_Inferencia_FaceMesh", framesHardwareTotales);
                             detector.process(image)
                                     .addOnSuccessListener(faces -> {
-                                        if (!faces.isEmpty()) framesProcesados++;
+                                        if (faces != null && !faces.isEmpty()) {
+                                            framesProcesados++;
+                                        }
                                     })
                                     .addOnCompleteListener(task -> {
                                         isBusy = false;
                                         imageProxy.close();
-                                        Trace.endAsyncSection("MLKit_Inferencia_FaceMesh", framesCapturados);
+                                        Trace.endAsyncSection("MLKit_Inferencia_FaceMesh", framesHardwareTotales);
                                     });
                         } else {
                             isBusy = false;
@@ -118,8 +139,6 @@ public class NativeCameraView implements PlatformView {
 
                 CameraSelector cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA;
                 cameraProvider.unbindAll();
-                
-                // Usamos la autoridad maxima del MainActivity
                 cameraProvider.bindToLifecycle(lifecycleOwner, cameraSelector, preview, imageAnalysis);
 
             } catch (Exception e) {
