@@ -1,13 +1,14 @@
 package com.example.capture_upload_video;
 
 import android.content.Context;
+import android.graphics.Bitmap;
 import android.util.Log;
 import android.view.View;
 import android.widget.FrameLayout;
+
 import androidx.annotation.NonNull;
-import androidx.annotation.OptIn;
+import androidx.camera.camera2.interop.Camera2Interop;
 import androidx.camera.core.CameraSelector;
-import androidx.camera.core.ExperimentalGetImage;
 import androidx.camera.core.ImageAnalysis;
 import androidx.camera.core.ImageProxy;
 import androidx.camera.core.Preview;
@@ -15,142 +16,159 @@ import androidx.camera.lifecycle.ProcessCameraProvider;
 import androidx.camera.view.PreviewView;
 import androidx.core.content.ContextCompat;
 import androidx.lifecycle.LifecycleOwner;
-import io.flutter.plugin.platform.PlatformView;
-import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import android.media.Image;
-import com.google.common.util.concurrent.ListenableFuture;
 
-import com.google.mlkit.vision.common.InputImage;
-import com.google.mlkit.vision.facemesh.FaceMeshDetection;
-import com.google.mlkit.vision.facemesh.FaceMeshDetector;
-import com.google.mlkit.vision.facemesh.FaceMeshDetectorOptions;
-import android.os.Trace;
-
-import androidx.camera.camera2.interop.Camera2Interop;
 import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.TotalCaptureResult;
 
+import com.google.common.util.concurrent.ListenableFuture;
+
+import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+import io.flutter.plugin.platform.PlatformView;
+
 public class NativeCameraView implements PlatformView {
-    private final FrameLayout container;
-    private final PreviewView previewView;
-    private ExecutorService cameraExecutor;
 
+    // --- VARIABLES ESTATICAS PARA MAINACTIVITY ---
     public static boolean isBenchmarking = false;
-    public static int framesProcesados = 0;
     public static int framesHardwareTotales = 0;
-    
-    private boolean isBusy = false;
-    private FaceMeshDetector detector;
-    private Context context;
-    private LifecycleOwner lifecycleOwner; // Referencia directa a la actividad
+    public static int framesEnviadosAlBuffer = 0; // La verdad absoluta del productor
+    public static int framesProcesados = 0;
+    public static int framesCara = 0;
+    // ---------------------------------------------
 
-    NativeCameraView(@NonNull Context context, int id, Map<String, Object> creationParams, LifecycleOwner lifecycleOwner) {
-        this.context = context;
-        this.lifecycleOwner = lifecycleOwner;
-        
-        container = new FrameLayout(context);
-        previewView = new PreviewView(context);
-        
-        previewView.setImplementationMode(PreviewView.ImplementationMode.COMPATIBLE);
-        // Forzamos a que ocupe todo el cuadrado de Flutter
-        previewView.setLayoutParams(new FrameLayout.LayoutParams(
+    private final FrameLayout contenedor;
+    private final PreviewView vistaPrevia;
+    private final Context contexto;
+    private final LifecycleOwner cicloDeVida;
+
+    private ExecutorService ejecutorCamara;
+    private ProcessCameraProvider proveedorCamara;
+
+    private final BufferDeFrames buffer;
+    private final PoolDeDetectores pool;
+
+    private volatile boolean faseDeVaciadoIniciada = true;
+
+    public NativeCameraView(@NonNull Context contexto, int id, Map<String, Object> params, LifecycleOwner cicloDeVida) {
+        this.contexto = contexto;
+        this.cicloDeVida = cicloDeVida;
+
+        contenedor = new FrameLayout(contexto);
+        vistaPrevia = new PreviewView(contexto);
+        vistaPrevia.setLayoutParams(new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT));
-                
-        container.addView(previewView);
+        contenedor.addView(vistaPrevia);
 
-        cameraExecutor = Executors.newSingleThreadExecutor();
-        FaceMeshDetectorOptions options = new FaceMeshDetectorOptions.Builder()
-                .setUseCase(FaceMeshDetectorOptions.FACE_MESH).build();
-        detector = FaceMeshDetection.getClient(options);
+        buffer = new BufferDeFrames();
+        pool = new PoolDeDetectores(1, buffer); 
 
+        ejecutorCamara = Executors.newSingleThreadExecutor();
         iniciarCamara();
     }
 
-private void iniciarCamara() {
-        ListenableFuture<ProcessCameraProvider> cameraProviderFuture = ProcessCameraProvider.getInstance(context);
-        cameraProviderFuture.addListener(() -> {
+    private void iniciarCamara() {
+        ListenableFuture<ProcessCameraProvider> futuroProveedor = ProcessCameraProvider.getInstance(contexto);
+        futuroProveedor.addListener(() -> {
             try {
-                ProcessCameraProvider cameraProvider = cameraProviderFuture.get();
+                proveedorCamara = futuroProveedor.get();
                 Preview preview = new Preview.Builder().build();
-                preview.setSurfaceProvider(previewView.getSurfaceProvider());
+                preview.setSurfaceProvider(vistaPrevia.getSurfaceProvider());
 
-                // 1. Empezamos a armar el ImageAnalysis
-                ImageAnalysis.Builder analysisBuilder = new ImageAnalysis.Builder()
+                ImageAnalysis.Builder builderAnalisis = new ImageAnalysis.Builder()
                         .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST);
 
-                // 2. Escuchamos los frames que salen del sensor de la camara (hardware) para contarlos y medir el FPS real de captura
-                Camera2Interop.Extender ext = new Camera2Interop.Extender(analysisBuilder);
+                Camera2Interop.Extender ext = new Camera2Interop.Extender(builderAnalisis);
                 ext.setSessionCaptureCallback(new CameraCaptureSession.CaptureCallback() {
                     @Override
                     public void onCaptureCompleted(@NonNull CameraCaptureSession session,
                                                    @NonNull CaptureRequest request,
                                                    @NonNull TotalCaptureResult result) {
                         super.onCaptureCompleted(session, request, result);
-                        // Esto se dispara fisicamente por cada foto que saca el sensor de la camara al momento de la captura
                         if (isBenchmarking) {
-                            framesHardwareTotales++; 
+                            framesHardwareTotales++;
                         }
                     }
                 });
 
-                // 3. Construimos el ImageAnalysis
-                ImageAnalysis imageAnalysis = analysisBuilder.build();
+                ImageAnalysis analizadorDeImagen = builderAnalisis.build();
 
-                imageAnalysis.setAnalyzer(cameraExecutor, new ImageAnalysis.Analyzer() {
-                    @OptIn(markerClass = ExperimentalGetImage.class)
+                analizadorDeImagen.setAnalyzer(ejecutorCamara, new ImageAnalysis.Analyzer() {
                     @Override
-                    public void analyze(@NonNull ImageProxy imageProxy) {
-                        if (!isBenchmarking) {          
-                            imageProxy.close();
-                            return;
+                    public void analyze(@NonNull ImageProxy imagenProxy) {
+                        if (isBenchmarking) {
+                            if (faseDeVaciadoIniciada) {
+                                buffer.limpiarTodo();
+                                framesHardwareTotales = 0;
+                                framesEnviadosAlBuffer = 0;
+                                framesProcesados = 0;
+                                framesCara = 0;
+                                pool.iniciar();
+                                faseDeVaciadoIniciada = false;
+                                Log.i("EDGE_RT", "====== INICIANDO CAPTURA (30s) ======");
+                            }
+                            int rotacion = imagenProxy.getImageInfo().getRotationDegrees();
+                            Bitmap frame = imagenProxy.toBitmap();
+                            buffer.agregarFrame(new FrameNativo(frame, rotacion));
+                            framesEnviadosAlBuffer++;
+
+                            // Log ligero para ver que la camara sigue viva (cada 50 frames)
+                            if (framesEnviadosAlBuffer % 50 == 0) {
+                                Log.d("EDGE_RT", "Productor: Capturados y en buffer " + framesEnviadosAlBuffer + " frames...");
+                            }
+                            
+                        } else if (!faseDeVaciadoIniciada) {
+                            faseDeVaciadoIniciada = true;
+                            Log.i("EDGE_RT", "====== CAPTURA TERMINADA. INICIANDO VACIADO DE RAM ======");
+                            new Thread(() -> vaciarBufferYActualizarStats()).start();
                         }
 
-                        if (isBusy) {
-                            imageProxy.close();
-                            return;
-                        }
-                        
-                        isBusy = true;
-                        Image mediaImage = imageProxy.getImage(); 
-                        if (mediaImage != null) {
-                            InputImage image = InputImage.fromMediaImage(mediaImage, imageProxy.getImageInfo().getRotationDegrees());
-                            Trace.beginAsyncSection("MLKit_Inferencia_FaceMesh", framesHardwareTotales);
-                            detector.process(image)
-                                    .addOnSuccessListener(faces -> {
-                                        if (faces != null && !faces.isEmpty()) {
-                                            framesProcesados++;
-                                        }
-                                    })
-                                    .addOnCompleteListener(task -> {
-                                        isBusy = false;
-                                        imageProxy.close();
-                                        Trace.endAsyncSection("MLKit_Inferencia_FaceMesh", framesHardwareTotales);
-                                    });
-                        } else {
-                            isBusy = false;
-                            imageProxy.close();
-                        }
+                        imagenProxy.close();
                     }
                 });
 
-                CameraSelector cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA;
-                cameraProvider.unbindAll();
-                cameraProvider.bindToLifecycle(lifecycleOwner, cameraSelector, preview, imageAnalysis);
+                CameraSelector selectorCamara = CameraSelector.DEFAULT_FRONT_CAMERA;
+                proveedorCamara.unbindAll();
+                proveedorCamara.bindToLifecycle(cicloDeVida, selectorCamara, preview, analizadorDeImagen);
 
             } catch (Exception e) {
-                Log.e("EDGE_RT", "Error al iniciar la camara nativa", e);
+                e.printStackTrace();
             }
-        }, ContextCompat.getMainExecutor(context));
+        }, ContextCompat.getMainExecutor(contexto));
     }
 
-    @NonNull @Override public View getView() { return container; }
-    
+    private void vaciarBufferYActualizarStats() {
+        try {
+            while (buffer.obtenerTamano() > 0) {
+                Thread.sleep(100); 
+            }
+            Thread.sleep(500); 
+
+            pool.detener();
+
+            framesProcesados = pool.framesProcesados.get();
+            framesCara = pool.framesCara.get();
+
+            Log.i("EDGE_RT", "====== VACIADO COMPLETADO ======");
+            Log.i("EDGE_RT", "Disparos de hardware: " + framesHardwareTotales);
+            Log.i("EDGE_RT", "Frames guardados en RAM: " + framesEnviadosAlBuffer);
+            Log.i("EDGE_RT", "Frames procesados por ML Kit: " + framesProcesados);
+            Log.i("EDGE_RT", "Rostros detectados: " + framesCara);
+
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+    }
+
+    @NonNull @Override public View getView() { return contenedor; }
+
     @Override public void dispose() {
-        if (cameraExecutor != null) cameraExecutor.shutdown();
-        if (detector != null) detector.close();
+        isBenchmarking = false;
+        if (ejecutorCamara != null) ejecutorCamara.shutdown();
+        if (pool != null) pool.detener();
+        if (proveedorCamara != null) proveedorCamara.unbindAll();
     }
 }
