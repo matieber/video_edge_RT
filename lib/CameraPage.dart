@@ -18,6 +18,7 @@ class CameraPage extends StatefulWidget {
 class _CameraPageState extends State<CameraPage> {
   static const platform = MethodChannel('benchmark_channel');
   bool _isLoading = true;
+  bool _isFlushing = false;
   bool _isRecording = false;
   String _luxString = 'Unknown';
   Light? _light;
@@ -66,7 +67,7 @@ class _CameraPageState extends State<CameraPage> {
       _timer!.cancel();
     }
     setState(() {
-      _countDownSeconds = 30; // Forzamos los 30 segundos
+      _countDownSeconds = 60; // Forzamos los 30 segundos
     });
 
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
@@ -88,29 +89,40 @@ void _iniciarTestLive() async {
 
     setState(() {
       _isRecording = true;
+      _isFlushing = false;
     });
 
-    _startLiveTimer(); // Arranca timer UI de 30s
+    _startLiveTimer();
 
-    // 1. Le decimos a Java que empiece a contar
     await platform.invokeMethod('startBenchmark');
+    await Future.delayed(const Duration(seconds: 60));
 
-    // 2. Dart espera 30 s
-    await Future.delayed(const Duration(seconds: 30));
+    // Aca terminan los 30 seg. Mostramos cartel de vaciando.
+    setState(() {
+      _isFlushing = true;
+    });
 
-    // 3. Le decimos a Java que pare y nos devuelva los resultados
+    // Dart se va a quedar clavado en esta linea HASTA que Java termine el buffer
     final Map<dynamic, dynamic> stats = await platform.invokeMethod('stopBenchmark');
 
-    int hardwareTotales = (stats['hardwareTotales'] ?? 0 as num).toInt();
-    int procesados = (stats['procesados'] ?? 0 as num).toInt();
+    // Java termino, sacamos los carteles
+    setState(() {
+      _isRecording = false;
+      _isFlushing = false;
+    });
 
-    // 4. Mandamos los datos al TestRunner. Ahora le pasamos la verdad absoluta
+    // Extraemos TODAS las nuevas metricas
     TestRunner runner = TestRunner();
     await runner.procesarResultadosNativos(
         context, 
-        30, 
-        hardwareTotales, // Total de fotos sacadas por el sensor
-        procesados       // Total de fotos digeridas por el modelo
+        60, 
+        (stats['hardwareTotales'] ?? 0).toInt(),
+        (stats['enviadosRAM'] ?? 0).toInt(),
+        (stats['procesadosTotal'] ?? 0).toInt(),
+        (stats['caras'] ?? 0).toInt(),
+        (stats['procesadosStream'] ?? 0).toInt(),
+        (stats['procesadosVaciado'] ?? 0).toInt(),
+        (stats['tiempoVaciado'] ?? 0).toDouble()
     );
   }
 
@@ -136,44 +148,69 @@ void _iniciarTestLive() async {
   }
 
   Widget _getRecordPage() {
-    // Tomamos el tamano total de la pantalla 
     final screenSize = MediaQuery.of(context).size;
 
-    return Center(
+return Center(
       child: Stack(
         alignment: Alignment.bottomCenter,
         children: [
-          // Centramos el óvalo un poco más arriba para que no choque con los botones
           Align(
             alignment: Alignment.topCenter,
             child: Padding(
               padding: const EdgeInsets.only(top: 50.0),
               child: Container(
-                  // Le ponemos un límite estricto de tamaño
                   width: screenSize.width * 0.9,
                   height: screenSize.height * 0.65,
                   decoration: BoxDecoration(
                     border: Border.all(color: Colors.blue, width: 4),
+                    // Sacamos el borderRadius de aca, el ClipOval hace el trabajo
                   ),
+                  // Volvemos a usar TU clipper original que estaba perfecto
                   child: ClipOval(
-                    clipper: clipper,
+                    clipper: clipper, 
                     child: const NativeCameraWidget(),
-                  )),
+                  ),
+              ),
             ),
           ),
-          Row(children: [
+          
+          // --- Cartel de Vaciado Superpuesto ---
+          if (_isFlushing)
+            Container(
+              color: Colors.black.withOpacity(0.7),
+              child: const Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(color: Colors.white),
+                    SizedBox(height: 20),
+                    Text(
+                      "Procesando frames restantes en memoria...\nAguarde un instante.",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                    )
+                  ],
+                ),
+              ),
+            ),
+          // ------------------------------------
+
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center, // Centrado
+            children: [
             Padding(
               padding: const EdgeInsets.all(25),
               child: FloatingActionButton(
                 heroTag: "record",
-                backgroundColor: Colors.red,
+                backgroundColor: _isFlushing ? Colors.grey : Colors.red,
+                // Deshabilitar boton si esta vaciando
+                onPressed: _isFlushing ? null : () => _iniciarTestLive(),
                 child: Icon(_isRecording ? Icons.stop : Icons.camera_front),
-                onPressed: () => _iniciarTestLive(),
               ),
             ),
-            _isRecording
-                ? Text('Test Live: ' + _countDownSeconds.toString() + ' segs.',
-                    style: DefaultTextStyle.of(context).style.apply(fontSizeFactor: 0.3))
+            _isRecording && !_isFlushing
+                ? Text('Test Live: $_countDownSeconds segs.',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))
                 : const SizedBox.shrink(),
           ])
         ],

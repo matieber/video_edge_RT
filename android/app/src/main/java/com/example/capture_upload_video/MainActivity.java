@@ -20,20 +20,14 @@ public class MainActivity extends FlutterActivity {
         new MethodChannel(flutterEngine.getDartExecutor().getBinaryMessenger(), CHANNEL)
                 .setMethodCallHandler((call, result) -> {
                     if (call.method.equals("startBenchmark")) {
-                        NativeCameraView.framesHardwareTotales = 0;
-                        NativeCameraView.framesProcesados = 0;
+                        // Ya no reseteamos variables aca, NativeCameraView lo hace solo al arrancar.
                         NativeCameraView.isBenchmarking = true;
                         result.success(null);
                     } 
                     else if (call.method.equals("stopBenchmark")) {
                         NativeCameraView.isBenchmarking = false;
-                        
-                        Map<String, Integer> stats = new HashMap<>();
-                        // Mandamos la cantidad real de frames que genero la camara fisicamente
-                        stats.put("hardwareTotales", NativeCameraView.framesHardwareTotales);
-                        stats.put("procesados", NativeCameraView.framesProcesados);
-                        
-                        result.success(stats);
+                        // Le pasamos el result a NativeCameraView para que responda despues del vaciado
+                        NativeCameraView.pendingResult = result;
                     } 
                     else {
                         result.notImplemented();

@@ -26,18 +26,28 @@ import com.google.common.util.concurrent.ListenableFuture;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.HashMap;
 
+import io.flutter.plugin.common.MethodChannel;
 import io.flutter.plugin.platform.PlatformView;
+
+import android.os.Handler;
+import android.os.Looper;
+import android.view.ViewOutlineProvider;
+import android.graphics.Outline;
 
 public class NativeCameraView implements PlatformView {
 
     // --- VARIABLES ESTATICAS PARA MAINACTIVITY ---
     public static boolean isBenchmarking = false;
     public static int framesHardwareTotales = 0;
-    public static int framesEnviadosAlBuffer = 0; // La verdad absoluta del productor
-    public static int framesProcesados = 0;
+    public static int framesEnviadosAlBuffer = 0; 
+    public static int framesProcesadosStream = 0;
     public static int framesCara = 0;
-    // ---------------------------------------------
+
+
+    // Objeto para responderle a Flutter despues del vaciado
+    public static MethodChannel.Result pendingResult;
 
     private final FrameLayout contenedor;
     private final PreviewView vistaPrevia;
@@ -50,7 +60,7 @@ public class NativeCameraView implements PlatformView {
     private final BufferDeFrames buffer;
     private final PoolDeDetectores pool;
 
-    private volatile boolean faseDeVaciadoIniciada = true;
+    private volatile boolean esPrimerFrameDelBenchmark = true;
 
     public NativeCameraView(@NonNull Context contexto, int id, Map<String, Object> params, LifecycleOwner cicloDeVida) {
         this.contexto = contexto;
@@ -58,13 +68,14 @@ public class NativeCameraView implements PlatformView {
 
         contenedor = new FrameLayout(contexto);
         vistaPrevia = new PreviewView(contexto);
+        vistaPrevia.setImplementationMode(PreviewView.ImplementationMode.COMPATIBLE);
         vistaPrevia.setLayoutParams(new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT));
         contenedor.addView(vistaPrevia);
 
         buffer = new BufferDeFrames();
-        pool = new PoolDeDetectores(1, buffer); 
+        pool = new PoolDeDetectores(6, buffer); 
 
         ejecutorCamara = Executors.newSingleThreadExecutor();
         iniciarCamara();
@@ -100,32 +111,29 @@ public class NativeCameraView implements PlatformView {
                     @Override
                     public void analyze(@NonNull ImageProxy imagenProxy) {
                         if (isBenchmarking) {
-                            if (faseDeVaciadoIniciada) {
+                            if (esPrimerFrameDelBenchmark) { 
                                 buffer.limpiarTodo();
+                                Log.d("EDGE_BENCH","START_TEST|1 hilo stream - buffering");
                                 framesHardwareTotales = 0;
                                 framesEnviadosAlBuffer = 0;
-                                framesProcesados = 0;
+                                framesProcesadosStream = 0;
                                 framesCara = 0;
                                 pool.iniciar();
-                                faseDeVaciadoIniciada = false;
-                                Log.i("EDGE_RT", "====== INICIANDO CAPTURA (30s) ======");
-                            }
-                            int rotacion = imagenProxy.getImageInfo().getRotationDegrees();
-                            Bitmap frame = imagenProxy.toBitmap();
-                            buffer.agregarFrame(new FrameNativo(frame, rotacion));
-                            framesEnviadosAlBuffer++;
-
-                            // Log ligero para ver que la camara sigue viva (cada 50 frames)
-                            if (framesEnviadosAlBuffer % 50 == 0) {
-                                Log.d("EDGE_RT", "Productor: Capturados y en buffer " + framesEnviadosAlBuffer + " frames...");
+                                esPrimerFrameDelBenchmark = false;
                             }
                             
-                        } else if (!faseDeVaciadoIniciada) {
-                            faseDeVaciadoIniciada = true;
-                            Log.i("EDGE_RT", "====== CAPTURA TERMINADA. INICIANDO VACIADO DE RAM ======");
-                            new Thread(() -> vaciarBufferYActualizarStats()).start();
+                            int rotacion = imagenProxy.getImageInfo().getRotationDegrees();
+                            buffer.agregarFrame(new FrameNativo(imagenProxy.toBitmap(), rotacion));
+                            framesEnviadosAlBuffer++;
+                            
+                        } else if (!esPrimerFrameDelBenchmark) { // fin de 30s pero venimos de recibir frames
+                            esPrimerFrameDelBenchmark = true;
+                            // Aca arranca el vaciado
+                            framesProcesadosStream = pool.framesProcesados.get();
+                            long inicioVaciado = System.currentTimeMillis();
+                            // Hilo para manejar el vaciado sin bloquear el analizador de imagen o el pool de hilos
+                            new Thread(() -> vaciarBufferYResponder(inicioVaciado)).start();
                         }
-
                         imagenProxy.close();
                     }
                 });
@@ -140,23 +148,42 @@ public class NativeCameraView implements PlatformView {
         }, ContextCompat.getMainExecutor(contexto));
     }
 
-    private void vaciarBufferYActualizarStats() {
+    private void vaciarBufferYResponder(long inicioVaciadoMillis) {
         try {
+            // A medida que el pool vacia, este hilo duerme un tiempo para evitar un busy waiting 
             while (buffer.obtenerTamano() > 0) {
-                Thread.sleep(100); 
+                Thread.sleep(100);              
             }
-            Thread.sleep(500); 
+            // Tiempo extra para asegurar que el pool de hilos termine de procesar los ultimos frames
+            Thread.sleep(500);
 
             pool.detener();
+            long finVaciadoMillis = System.currentTimeMillis();
 
-            framesProcesados = pool.framesProcesados.get();
-            framesCara = pool.framesCara.get();
+            // Calculamos metricas finales
+            float tiempoVaciadoSegundos = (finVaciadoMillis - inicioVaciadoMillis) / 1000f;
+            int procesadosTotal = pool.framesProcesados.get();
+            int procesadosVaciado = procesadosTotal - framesProcesadosStream;
+            int carasTotales = pool.framesCara.get();
 
-            Log.i("EDGE_RT", "====== VACIADO COMPLETADO ======");
-            Log.i("EDGE_RT", "Disparos de hardware: " + framesHardwareTotales);
-            Log.i("EDGE_RT", "Frames guardados en RAM: " + framesEnviadosAlBuffer);
-            Log.i("EDGE_RT", "Frames procesados por ML Kit: " + framesProcesados);
-            Log.i("EDGE_RT", "Rostros detectados: " + framesCara);
+            // Armamos el paquete para Dart
+            Map<String, Object> stats = new HashMap<>();
+            stats.put("hardwareTotales", framesHardwareTotales);
+            stats.put("enviadosRAM", framesEnviadosAlBuffer);
+            stats.put("procesadosTotal", procesadosTotal);
+            stats.put("caras", carasTotales);
+            stats.put("procesadosStream", framesProcesadosStream);
+            stats.put("procesadosVaciado", procesadosVaciado);
+            stats.put("tiempoVaciado", tiempoVaciadoSegundos);
+            
+            Log.d("EDGE_BENCH", "END_TEST|1 hilo stream - buffering|" + framesHardwareTotales + "|" + carasTotales);
+            // Respondemos a Flutter en el hilo principal
+            if (pendingResult != null) {
+                new Handler(Looper.getMainLooper()).post(() -> {
+                    pendingResult.success(stats);
+                    pendingResult = null; // Limpiamos
+                });
+            }
 
         } catch (InterruptedException e) {
             e.printStackTrace();

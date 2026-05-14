@@ -18,18 +18,27 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class PoolDeDetectores {
     
-    private final ExecutorService poolDeHilos;
+    private ExecutorService poolDeHilos;
     private final BufferDeFrames buffer;
-    private final List<FaceMeshDetector> detectores;
+    private List<FaceMeshDetector> detectores;
+    private final int cantidadHilos;
     
     private volatile boolean estaCorriendo = false;
     
-    // Contadores separados
     public final AtomicInteger framesProcesados = new AtomicInteger(0);
     public final AtomicInteger framesCara = new AtomicInteger(0);
 
     public PoolDeDetectores(int cantidadHilos, BufferDeFrames buffer) {
         this.buffer = buffer;
+        this.cantidadHilos = cantidadHilos;
+    }
+
+    public void iniciar() {
+        estaCorriendo = true;
+        framesProcesados.set(0);
+        framesCara.set(0);
+        
+        // Se crea el pool y los detectores siempre al iniciar. 
         this.poolDeHilos = Executors.newFixedThreadPool(cantidadHilos);
         this.detectores = new ArrayList<>();
 
@@ -37,19 +46,12 @@ public class PoolDeDetectores {
                 .setUseCase(FaceMeshDetectorOptions.FACE_MESH).build();
 
         for (int i = 0; i < cantidadHilos; i++) {
-            detectores.add(FaceMeshDetection.getClient(opciones));
-        }
-    }
-
-    public void iniciar() {
-        estaCorriendo = true;
-        // Reseteamos por si es la segunda vez que se corre
-        framesProcesados.set(0);
-        framesCara.set(0);
-        
-        for (int i = 0; i < detectores.size(); i++) {
-            final FaceMeshDetector detector = detectores.get(i);
+            FaceMeshDetector detector = FaceMeshDetection.getClient(opciones);
+            detectores.add(detector);
             final int idHilo = i;
+            // Imprimimos por consola numero de hilo 
+            Log.d("PoolDetectores", "SOY EL HILO NUMERO  ---> " + idHilo);
+            // Ponemos a los obreros a trabajar en segundo plano
             poolDeHilos.execute(() -> procesarCiclo(detector, idHilo));
         }
     }
@@ -58,43 +60,46 @@ public class PoolDeDetectores {
         while (estaCorriendo) {
             FrameNativo frameNativo = null;
             try {
+                // Si el buffer esta vacio, el hilo duerme aca. No consume CPU.
                 frameNativo = buffer.extraerFrame(); 
                 InputImage imagen = InputImage.fromBitmap(frameNativo.bitmap, frameNativo.rotacion);
 
-                // Aca capturamos el resultado real de la inferencia
                 List<FaceMesh> rostros = Tasks.await(detector.process(imagen));
 
-                // Si no lanzo excepcion, el frame fue procesado exitosamente
                 framesProcesados.incrementAndGet();
 
-                // Verificamos si efectivamente encontro una cara
                 if (rostros != null && !rostros.isEmpty()) {
                     framesCara.incrementAndGet();
                 }
 
-                // Log ligero para ver actividad en el consumidor (cada 50 procesados)
                 if (framesProcesados.get() % 50 == 0) {
                     Log.d("EDGE_RT", "Consumidor: Procesados " + framesProcesados.get() + " frames...");
                 }
 
             } catch (InterruptedException e) {
+                // Esto salta limpio cuando llamamos a shutdownNow() desde el hilo supervisor
                 Thread.currentThread().interrupt();
                 break;
             } catch (Exception e) {
                 Log.e("PoolDetectores", "Error de inferencia en hilo " + idHilo, e);
             } finally {
+                // Liberamos la memoria del bitmap una vez procesado para evitar OOM posterior a procesar el frame
                 if (frameNativo != null && frameNativo.bitmap != null && !frameNativo.bitmap.isRecycled()) {
                         frameNativo.bitmap.recycle();
-                    }
+                }
             }
         }
     }
 
     public void detener() {
         estaCorriendo = false;
-        poolDeHilos.shutdownNow(); 
-        for (FaceMeshDetector detector : detectores) {
-            detector.close();
+        if (poolDeHilos != null) {
+            poolDeHilos.shutdownNow(); 
+        }
+        if (detectores != null) {
+            for (FaceMeshDetector detector : detectores) {
+                detector.close();
+            }
         }
     }
 }

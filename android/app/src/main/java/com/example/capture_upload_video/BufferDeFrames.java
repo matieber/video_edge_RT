@@ -5,7 +5,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 
 public class BufferDeFrames {
     
-    // Cola concurrente. Al no poner limite, crecera hasta llenar la RAM
+    // Cola concurrente. Al no poner limite crecera hasta llenar la RAM
     private final LinkedBlockingQueue<FrameNativo> colaDeFrames;
 
     public BufferDeFrames() {
@@ -20,7 +20,7 @@ public class BufferDeFrames {
         }
     }
 
-    // Metodo para el Consumidor (Modelo ML)
+    // Metodo para el Consumidor (pool de hilos Modelo ML)
     // take() bloquea el hilo si no hay frames hasta que llegue uno nuevo
     public FrameNativo extraerFrame() throws InterruptedException {
         return colaDeFrames.take(); 
