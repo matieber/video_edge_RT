@@ -2,6 +2,7 @@
 
 ### Java
 Todos los archivos se encuentran en android/app/src/main/java/com
+* Desde NativeCameraView.java en el constructor de la clase se puede cambiar la cantidad de hilos. 
 
 ### Perfetto
 Si se quiere utilizar perfetto se debe ejecutar desde perfetto y se debe tener la app en el celular.
