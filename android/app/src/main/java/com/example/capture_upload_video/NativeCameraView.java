@@ -81,18 +81,44 @@ public class NativeCameraView implements PlatformView {
         iniciarCamara();
     }
 
+    /**Idea general del siguiente método:
+     * Capturar frames de la cámara frontal,
+     * analizarlos en tiempo real,
+     * almacenarlos temporalmente en un buffer y
+     * medir cuántos frames puede procesar el
+     * sistema durante una prueba de rendimiento (“benchmark”).
+     * */
     private void iniciarCamara() {
+        //se obtiene el proveedor de cámara de CameraX de forma asíncrona
         ListenableFuture<ProcessCameraProvider> futuroProveedor = ProcessCameraProvider.getInstance(contexto);
+
+        //Cuando está listo, se ejecuta toda la configuración.
         futuroProveedor.addListener(() -> {
             try {
                 proveedorCamara = futuroProveedor.get();
+                /**
+                 * Esto hace que la imagen de la cámara se vea en pantalla.                 *                 *
+                 * Componente preview = stream visual de cámara
+                 * Componente vistaPrevia = componente UI donde se renderiza
+                 * */
                 Preview preview = new Preview.Builder().build();
                 preview.setSurfaceProvider(vistaPrevia.getSurfaceProvider());
 
+                /**
+                 * Se crea pipeline para analizar frames.
+                 * Con estrategia STRATEGY_KEEP_ONLY_LATEST que significa que
+                 * si el procesamiento es más lento que la cámara, descarta frames
+                 * viejos quedándose sólo con el último.
+                 * */
                 ImageAnalysis.Builder builderAnalisis = new ImageAnalysis.Builder()
                         .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST);
 
+                /**Interoperabilidad con Camera2: permite acceder a
+                 * callbacks de bajo nivel de Camera2 aunque se esté usando CameraX.
+                 * */
                 Camera2Interop.Extender ext = new Camera2Interop.Extender(builderAnalisis);
+
+                /**Este callback se ejecuta cada vez que la cámara termina de capturar un frame.*/
                 ext.setSessionCaptureCallback(new CameraCaptureSession.CaptureCallback() {
                     @Override
                     public void onCaptureCompleted(@NonNull CameraCaptureSession session,
@@ -121,9 +147,10 @@ public class NativeCameraView implements PlatformView {
                                 pool.iniciar();
                                 esPrimerFrameDelBenchmark = false;
                             }
-                            
+                            long inicioAgregadoFrame = System.currentTimeMillis();
                             int rotacion = imagenProxy.getImageInfo().getRotationDegrees();
                             buffer.agregarFrame(new FrameNativo(imagenProxy.toBitmap(), rotacion));
+                            Log.d("EDGE_BENCH","tiempo (millis) de agregado de frame "+ (System.currentTimeMillis() - inicioAgregadoFrame));
                             framesEnviadosAlBuffer++;
                             
                         } else if (!esPrimerFrameDelBenchmark) { // fin de 30s pero venimos de recibir frames

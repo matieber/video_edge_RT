@@ -57,15 +57,26 @@ public class PoolDeDetectores {
     }
 
     private void procesarCiclo(FaceMeshDetector detector, int idHilo) {
+        long tiempoConversion = 0;
+        long tiempoInferencia = 0;
+        long tiempoBloqueado = 0;
         while (estaCorriendo) {
             FrameNativo frameNativo = null;
             try {
                 // Si el buffer esta vacio, el hilo duerme aca. No consume CPU.
-                frameNativo = buffer.extraerFrame(); 
-                InputImage imagen = InputImage.fromBitmap(frameNativo.bitmap, frameNativo.rotacion);
+                tiempoBloqueado = System.currentTimeMillis();
+                frameNativo = buffer.extraerFrame();
+                tiempoBloqueado = System.currentTimeMillis() - tiempoBloqueado;
 
+                tiempoConversion = System.currentTimeMillis();
+                InputImage imagen = InputImage.fromBitmap(frameNativo.bitmap, frameNativo.rotacion);
+                tiempoConversion = System.currentTimeMillis() - tiempoConversion;
+
+                tiempoInferencia = System.currentTimeMillis();
+                tiempoInferencia = System.currentTimeMillis() - tiempoInferencia;
                 List<FaceMesh> rostros = Tasks.await(detector.process(imagen));
 
+                Log.d("EDGE_RT", "Consumidor "+ idHilo+" : tiempoBloqueado "+ tiempoBloqueado +" tiempoConversion " + tiempoConversion + " tiempoInferencia "+ tiempoInferencia);
                 framesProcesados.incrementAndGet();
 
                 if (rostros != null && !rostros.isEmpty()) {
