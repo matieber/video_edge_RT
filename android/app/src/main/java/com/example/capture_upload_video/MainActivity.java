@@ -1,14 +1,28 @@
 package com.example.capture_upload_video;
 
+import android.Manifest;
+import android.content.pm.PackageManager;
+import android.os.Bundle;
 import androidx.annotation.NonNull;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import io.flutter.embedding.android.FlutterActivity;
 import io.flutter.embedding.engine.FlutterEngine;
 import io.flutter.plugin.common.MethodChannel;
-import java.util.HashMap;
-import java.util.Map;
 
 public class MainActivity extends FlutterActivity {
     private static final String CHANNEL = "benchmark_channel";
+    private static final int CAMERA_PERMISSION_CODE = 100;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        
+        // Solicitamos el permiso de camara nativamente al sistema operativo
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_CODE);
+        }
+    }
 
     @Override
     public void configureFlutterEngine(@NonNull FlutterEngine flutterEngine) {
