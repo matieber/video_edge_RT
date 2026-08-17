@@ -1,6 +1,8 @@
 package com.example.capture_upload_video;
 
 import android.graphics.Bitmap;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
 
 public class BufferDeFrames {
@@ -20,10 +22,17 @@ public class BufferDeFrames {
         }
     }
 
-    // Metodo para el Consumidor (pool de hilos Modelo ML)
-    // take() bloquea el hilo si no hay frames hasta que llegue uno nuevo
-    public FrameNativo extraerFrame() throws InterruptedException {
-        return colaDeFrames.take(); 
+    // Nuevo metodo para el Consumidor: Extrae por lotes
+    public List<FrameNativo> extraerLote(int tamanoLote) throws InterruptedException {
+        List<FrameNativo> lote = new ArrayList<>();
+        
+        // take() bloquea el hilo si la cola esta vacia. Garantiza que el lote tenga al menos 1 frame.
+        lote.add(colaDeFrames.take());
+        
+        // drainTo() saca hasta (tamanoLote - 1) elementos adicionales de golpe sin bloquear si no hay mas
+        colaDeFrames.drainTo(lote, tamanoLote - 1);
+        
+        return lote;
     }
 
     // Para saber cuantos frames hay atascados esperando

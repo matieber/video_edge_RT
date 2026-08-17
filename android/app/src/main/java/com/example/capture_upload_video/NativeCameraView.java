@@ -48,6 +48,10 @@ public class NativeCameraView implements PlatformView {
 
     // Objeto para responderle a Flutter despues del vaciado
     public static MethodChannel.Result pendingResult;
+    
+    // NUEVO: Constante para definir de a cuantos frames tomar del buffer por lote.
+    // Cambia este valor a lo que necesites medir.
+    private static final int TAMANO_LOTE = 5;
 
     private final FrameLayout contenedor;
     private final PreviewView vistaPrevia;
@@ -75,7 +79,8 @@ public class NativeCameraView implements PlatformView {
         contenedor.addView(vistaPrevia);
 
         buffer = new BufferDeFrames();
-        pool = new PoolDeDetectores(6, buffer); 
+        // NUEVO: Ahora pasamos TAMANO_LOTE al pool de detectores
+        pool = new PoolDeDetectores(6, buffer, TAMANO_LOTE); 
 
         ejecutorCamara = Executors.newSingleThreadExecutor();
         iniciarCamara();
