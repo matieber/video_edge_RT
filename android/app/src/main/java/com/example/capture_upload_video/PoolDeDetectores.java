@@ -22,14 +22,14 @@ public class PoolDeDetectores {
     private final BufferDeFrames buffer;
     private List<FaceMeshDetector> detectores;
     private final int cantidadHilos;
-    private final int tamanoLote; // NUEVO: Variable para decidir de a cuantos frames tomar
+    private final int tamanoLote; //Variable para decidir de a cuantos frames tomar
     
     private volatile boolean estaCorriendo = false;
     
     public final AtomicInteger framesProcesados = new AtomicInteger(0);
     public final AtomicInteger framesCara = new AtomicInteger(0);
 
-    // NUEVO: Agregamos tamanoLote al constructor
+    // Agregamos tamanoLote al constructor
     public PoolDeDetectores(int cantidadHilos, BufferDeFrames buffer, int tamanoLote) {
         this.buffer = buffer;
         this.cantidadHilos = cantidadHilos;
@@ -54,7 +54,7 @@ public class PoolDeDetectores {
             final int idHilo = i;
             // Imprimimos por consola numero de hilo 
             Log.d("PoolDetectores", "SOY EL HILO NUMERO  ---> " + idHilo);
-            // Ponemos a los obreros a trabajar en segundo plano
+            // Ponemos a los hilos a trabajar en segundo plano
             poolDeHilos.execute(() -> procesarCiclo(detector, idHilo));
         }
     }
@@ -65,14 +65,14 @@ public class PoolDeDetectores {
         long tiempoBloqueado = 0;
         
         while (estaCorriendo) {
-            List<FrameNativo> lote = null; // NUEVO: Usamos una lista en lugar de un solo frame
+            List<FrameNativo> lote = null; //Usamos una lista en lugar de un solo frame
             try {
                 // Si el buffer esta vacio, el hilo duerme aca garantizando al menos 1 frame, o sacando el lote completo si hay acumulados
                 tiempoBloqueado = System.currentTimeMillis();
                 lote = buffer.extraerLote(tamanoLote);
                 tiempoBloqueado = System.currentTimeMillis() - tiempoBloqueado;
 
-                // NUEVO: Iteramos sobre todos los frames que sacamos de una sola vez
+                //Iteramos sobre todos los frames que sacamos de una sola vez
                 for (FrameNativo frameNativo : lote) {
                     tiempoConversion = System.currentTimeMillis();
                     InputImage imagen = InputImage.fromBitmap(frameNativo.bitmap, frameNativo.rotacion);
@@ -101,7 +101,7 @@ public class PoolDeDetectores {
             } catch (Exception e) {
                 Log.e("PoolDetectores", "Error de inferencia en hilo " + idHilo, e);
             } finally {
-                // NUEVO: Liberamos la memoria de TODOS los bitmaps del lote para evitar un OOM
+                // iberamos la memoria de los bitmaps del lote para evitar un OOM
                 if (lote != null) {
                     for (FrameNativo f : lote) {
                         if (f.bitmap != null && !f.bitmap.isRecycled()) {

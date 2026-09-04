@@ -49,8 +49,7 @@ public class NativeCameraView implements PlatformView {
     // Objeto para responderle a Flutter despues del vaciado
     public static MethodChannel.Result pendingResult;
     
-    // NUEVO: Constante para definir de a cuantos frames tomar del buffer por lote.
-    // Cambia este valor a lo que necesites medir.
+    // Constante para definir de a cuantos frames tomar del buffer por lote.
     private static final int TAMANO_LOTE = 5;
 
     private final FrameLayout contenedor;
@@ -79,51 +78,29 @@ public class NativeCameraView implements PlatformView {
         contenedor.addView(vistaPrevia);
 
         buffer = new BufferDeFrames();
-        // NUEVO: Ahora pasamos TAMANO_LOTE al pool de detectores
+        // Pasamos TAMANO_LOTE al pool de detectores
         pool = new PoolDeDetectores(6, buffer, TAMANO_LOTE); 
 
         ejecutorCamara = Executors.newSingleThreadExecutor();
         iniciarCamara();
     }
 
-    /**Idea general del siguiente método:
-     * Capturar frames de la cámara frontal,
-     * analizarlos en tiempo real,
-     * almacenarlos temporalmente en un buffer y
-     * medir cuántos frames puede procesar el
-     * sistema durante una prueba de rendimiento (“benchmark”).
-     * */
     private void iniciarCamara() {
-        //se obtiene el proveedor de cámara de CameraX de forma asíncrona
+        //se obtiene el proveedor de camara de CameraX de forma asincrona
         ListenableFuture<ProcessCameraProvider> futuroProveedor = ProcessCameraProvider.getInstance(contexto);
 
-        //Cuando está listo, se ejecuta toda la configuración.
         futuroProveedor.addListener(() -> {
             try {
                 proveedorCamara = futuroProveedor.get();
-                /**
-                 * Esto hace que la imagen de la cámara se vea en pantalla.                 *                 *
-                 * Componente preview = stream visual de cámara
-                 * Componente vistaPrevia = componente UI donde se renderiza
-                 * */
                 Preview preview = new Preview.Builder().build();
                 preview.setSurfaceProvider(vistaPrevia.getSurfaceProvider());
 
-                /**
-                 * Se crea pipeline para analizar frames.
-                 * Con estrategia STRATEGY_KEEP_ONLY_LATEST que significa que
-                 * si el procesamiento es más lento que la cámara, descarta frames
-                 * viejos quedándose sólo con el último.
-                 * */
                 ImageAnalysis.Builder builderAnalisis = new ImageAnalysis.Builder()
                         .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST);
 
-                /**Interoperabilidad con Camera2: permite acceder a
-                 * callbacks de bajo nivel de Camera2 aunque se esté usando CameraX.
-                 * */
+                // API de mas bajo nivel que CameraX para contar los frames.
                 Camera2Interop.Extender ext = new Camera2Interop.Extender(builderAnalisis);
-
-                /**Este callback se ejecuta cada vez que la cámara termina de capturar un frame.*/
+                // Este callback se ejecuta cada vez que la camara termina de capturar un frame
                 ext.setSessionCaptureCallback(new CameraCaptureSession.CaptureCallback() {
                     @Override
                     public void onCaptureCompleted(@NonNull CameraCaptureSession session,

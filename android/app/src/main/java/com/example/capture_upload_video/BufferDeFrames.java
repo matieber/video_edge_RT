@@ -7,7 +7,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 
 public class BufferDeFrames {
     
-    // Cola concurrente. Al no poner limite crecera hasta llenar la RAM
+    // Cola concurrente
     private final LinkedBlockingQueue<FrameNativo> colaDeFrames;
 
     public BufferDeFrames() {
